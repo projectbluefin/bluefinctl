@@ -24,7 +24,7 @@ class IdentityCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("⬡ Identity", classes="card--title")
+        yield Label("Identity", classes="card--title")
         yield Label("Loading...", id="identity-info")
 
     def on_mount(self) -> None:
@@ -50,7 +50,7 @@ class HardwareCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("⚙ Hardware", classes="card--title")
+        yield Label("Hardware", classes="card--title")
         yield Label("Loading...", id="hardware-info")
 
     def on_mount(self) -> None:
@@ -60,13 +60,13 @@ class HardwareCard(Static):
         from bluefinctl.core.system import get_system_info
 
         info = await get_system_info()
-        gpu_line = f"{info.gpu.icon} {info.gpu.vendor.upper()} {info.gpu.model}"
+        gpu_line = f"{info.gpu.vendor.upper()} {info.gpu.model}"
         if info.gpu.vram_mb:
-            gpu_line += f" ({info.gpu.vram_mb // 1024}GB VRAM)"
+            gpu_line += f"  {info.gpu.vram_mb // 1024}GB VRAM"
 
         self.query_one("#hardware-info", Label).update(
             f"GPU:  {gpu_line}\n"
-            f"Mode: {'🛠️  Developer' if info.devmode else '📦 Standard'}"
+            f"Mode: {'Developer' if info.devmode else 'Standard'}"
         )
 
 
@@ -78,7 +78,7 @@ class BundleSummaryCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("◆ Active Bundles", classes="card--title")
+        yield Label("Active Bundles", classes="card--title")
         yield Label("Loading...", id="bundles-summary")
 
     def on_mount(self) -> None:
@@ -112,7 +112,7 @@ class HealthCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("♥ Health", classes="card--title")
+        yield Label("Health", classes="card--title")
         yield Label("Loading...", id="health-info")
 
     def on_mount(self) -> None:
@@ -129,16 +129,16 @@ class HealthCard(Static):
                 "nvidia-smi", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
-            checks.append("✓ GPU driver" if proc.returncode == 0 else "✗ GPU driver")
+            checks.append("ok GPU driver" if proc.returncode == 0 else "X GPU driver")
         except FileNotFoundError:
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "rocm-smi", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                 )
                 await proc.communicate()
-                checks.append("✓ GPU driver" if proc.returncode == 0 else "✗ GPU driver")
+                checks.append("ok GPU driver" if proc.returncode == 0 else "X GPU driver")
             except FileNotFoundError:
-                checks.append("─ GPU (no discrete GPU)")
+                checks.append("-- GPU (no discrete GPU)")
 
         # systemd
         try:
@@ -149,13 +149,13 @@ class HealthCard(Static):
             stdout, _ = await proc.communicate()
             status = stdout.decode().strip()
             if status == "running":
-                checks.append("✓ System services")
+                checks.append("ok System services")
             elif status == "degraded":
-                checks.append("⚠ System services (degraded)")
+                checks.append("! System services (degraded)")
             else:
-                checks.append(f"✗ System services ({status})")
+                checks.append(f"X System services ({status})")
         except FileNotFoundError:
-            checks.append("─ systemd unavailable")
+            checks.append("-- systemd unavailable")
 
         # Homebrew
         try:
@@ -164,9 +164,9 @@ class HealthCard(Static):
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
-            checks.append("✓ Homebrew" if proc.returncode == 0 else "✗ Homebrew")
+            checks.append("ok Homebrew" if proc.returncode == 0 else "X Homebrew")
         except FileNotFoundError:
-            checks.append("✗ Homebrew not found")
+            checks.append("X Homebrew not found")
 
         self.query_one("#health-info", Label).update("  " + "\n  ".join(checks))
 

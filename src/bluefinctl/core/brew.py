@@ -233,24 +233,24 @@ def brew_action(action: str, package: str | None = None) -> None:
         case "list":
             state = asyncio.run(get_brew_state())
             for pkg in state.packages:
-                icon = {"system": "🏭", "user": "👤", "disabled": "❌"}[pkg.source.value]
-                outdated = " ⟳" if pkg.outdated else ""
+                icon = {"system": "[S]", "user": "[U]", "disabled": "[X]"}[pkg.source.value]
+                outdated = " ~" if pkg.outdated else ""
                 console.print(f"  {icon} {pkg.name}{outdated}")
             console.print(f"\n  Total: {len(state.packages)} packages")
 
         case "add" if package:
             success = asyncio.run(add_package(package))
             if success:
-                console.print(f"[green]✓[/green] Added {package}")
+                console.print(f"[green]ok[/green] Added {package}")
             else:
-                console.print(f"[red]✗[/red] Failed to add {package}")
+                console.print(f"[red]X[/red] Failed to add {package}")
 
         case "remove" if package:
             success = asyncio.run(remove_package(package))
             if success:
-                console.print(f"[green]✓[/green] Removed {package}")
+                console.print(f"[green]ok[/green] Removed {package}")
             else:
-                console.print(f"[red]✗[/red] Failed to remove {package}")
+                console.print(f"[red]X[/red] Failed to remove {package}")
 
         case "upgrade":
             console.print("[bold]Upgrading all packages...[/bold]")

@@ -67,7 +67,7 @@ async def enable_devmode() -> bool:
         )
         _, stderr = await proc.communicate()
         if proc.returncode == 0:
-            console.print(f"  [green]✓[/green] Added to group: {group}")
+            console.print(f"  [green]ok[/green] Added to group: {group}")
         else:
             # Group may not exist on this image — that's OK
             console.print(f"  [dim]  Skipped group: {group}[/dim]")
@@ -81,9 +81,9 @@ async def enable_devmode() -> bool:
         )
         await proc.communicate()
         if proc.returncode == 0:
-            console.print(f"  [green]✓[/green] Installed: {pkg}")
+            console.print(f"  [green]ok[/green] Installed: {pkg}")
         else:
-            console.print(f"  [yellow]⚠[/yellow] Failed to install: {pkg}")
+            console.print(f"  [yellow]![/yellow] Failed to install: {pkg}")
 
     console.print("\n[green bold]Developer mode enabled![/green bold]")
     console.print("[dim]Log out and back in for group changes to take effect.[/dim]")
@@ -106,7 +106,7 @@ async def disable_devmode() -> bool:
         )
         await proc.communicate()
         if proc.returncode == 0:
-            console.print(f"  [green]✓[/green] Removed from group: {group}")
+            console.print(f"  [green]ok[/green] Removed from group: {group}")
 
     console.print("\n[green bold]Developer mode disabled.[/green bold]")
     console.print("[dim]Log out and back in for group changes to take effect.[/dim]")

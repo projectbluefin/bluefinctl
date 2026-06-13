@@ -33,10 +33,10 @@ class BundleDetail(Static):
         from bluefinctl.core.bundles import BundleState
 
         state_label = {
-            BundleState.BASE: "[◆ Base Layer — always active]",
-            BundleState.ACTIVE: "[● Active]",
-            BundleState.PARTIAL: "[◐ Partially installed]",
-            BundleState.AVAILABLE: "[○ Available]",
+            BundleState.BASE: "[# Base Layer — always active]",
+            BundleState.ACTIVE: "[* Active]",
+            BundleState.PARTIAL: "[~ Partially installed]",
+            BundleState.AVAILABLE: "[. Available]",
         }
 
         lines = [
@@ -48,13 +48,13 @@ class BundleDetail(Static):
             f"  Packages: {bundle.installed_count}/{bundle.total_count} installed",
             f"  Category: {bundle.meta.category.value}",
             "",
-            "  ── Contents ──",
+            "  ---- Contents ----",
         ]
 
         # Show package list (first 20, then "and N more...")
         display_pkgs = bundle.packages[:20]
         for pkg in display_pkgs:
-            lines.append(f"    • {pkg}")
+            lines.append(f"    - {pkg}")
         if len(bundle.packages) > 20:
             lines.append(f"    ... and {len(bundle.packages) - 20} more")
 
@@ -97,7 +97,7 @@ class BundleList(Static):
                 continue
             # Category header
             listview.append(ListItem(
-                Label(f"  ─── {category.value} ───"),
+                Label(f"  ------ {category.value} ------"),
             ))
             for bundle in cat_bundles:
                 indicator = bundle.state_indicator

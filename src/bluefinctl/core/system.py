@@ -21,8 +21,8 @@ class GpuInfo:
 
     @property
     def icon(self) -> str:
-        icons = {"nvidia": "🟢", "amd": "🔴", "intel": "🔵"}
-        return icons.get(self.vendor, "⚪")
+        icons = {"nvidia": "[N]", "amd": "[A]", "intel": "[I]"}
+        return icons.get(self.vendor, "[-]")
 
 
 @dataclass

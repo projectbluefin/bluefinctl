@@ -48,8 +48,8 @@ class PodTree(Static):
                     name = pod.get("Name", "unknown")
                     status = pod.get("Status", "unknown")
                     num_containers = pod.get("Containers", [])
-                    icon = "▼" if status == "Running" else "▶"
-                    state_icon = "🟢" if status == "Running" else "🔴"
+                    icon = "v" if status == "Running" else ">"
+                    state_icon = "+" if status == "Running" else "-"
 
                     pod_node = tree.root.add(
                         f"{icon} {state_icon} {name}  [{status}]  "
@@ -70,7 +70,7 @@ class PodTree(Static):
                             ct_name = ct.get("Names", ["?"])[0] if isinstance(ct.get("Names"), list) else ct.get("Names", "?")
                             ct_state = ct.get("State", "unknown")
                             ct_image = ct.get("Image", "").split("/")[-1].split(":")[0]
-                            ct_icon = "🟢" if ct_state == "running" else "🔴"
+                            ct_icon = "+" if ct_state == "running" else "-"
                             pod_node.add_leaf(f"  {ct_icon} {ct_name}  ({ct_image})  [{ct_state}]")
 
                     pod_node.expand()
@@ -99,12 +99,12 @@ class ContainersScreen(Screen):
             yield Sidebar("containers")
             with Vertical(id="main-content"):
                 yield Label(
-                    "  🐳 Containers & Pods",
+                    "  Containers & Pods",
                     classes="card--title",
                 )
                 yield PodTree()
                 yield Label(
-                    "  [r]efresh  [l]ogs  │  Read-only view — manage pods with podman CLI",
+                    "  [r]efresh  [l]ogs  |  Read-only view — manage pods with podman CLI",
                     id="containers-footer",
                 )
 

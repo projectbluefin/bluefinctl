@@ -1,4 +1,4 @@
-"""Updates screen — uupd strategy, focus mode, channel management.
+"""Updates screen - uupd strategy, focus mode, channel management.
 
 Controls:
 - Update strategy (automatic/notify/manual/scheduled)
@@ -24,23 +24,23 @@ class StrategyCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("⟳ Update Strategy", classes="card--title")
+        yield Label("Update Strategy", classes="card--title")
         with RadioSet(id="strategy-radios"):
-            yield RadioButton("Automatic — updates apply silently", value=True, id="strat-auto")
-            yield RadioButton("Notify — download, ask before reboot", id="strat-notify")
-            yield RadioButton("Manual — only when I say so", id="strat-manual")
-            yield RadioButton("Scheduled — pick a maintenance window", id="strat-sched")
+            yield RadioButton("Automatic - updates apply silently", value=True, id="strat-auto")
+            yield RadioButton("Notify - download, ask before reboot", id="strat-notify")
+            yield RadioButton("Manual - only when I say so", id="strat-manual")
+            yield RadioButton("Scheduled - pick a maintenance window", id="strat-sched")
 
 
 class FocusModeCard(Static):
-    """Focus mode toggle — pause all updates."""
+    """Focus mode toggle - pause all updates."""
 
     DEFAULT_CSS = """
     FocusModeCard { height: auto; padding: 1 2; }
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("🎯 Focus Mode", classes="card--title")
+        yield Label("Focus Mode", classes="card--title")
         with Horizontal():
             yield Switch(value=False, id="focus-switch")
             yield Label(
@@ -69,7 +69,7 @@ class LayerToggles(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("▦ Per-Layer Control", classes="card--title")
+        yield Label("Per-Layer Control", classes="card--title")
         with Horizontal():
             yield Switch(value=True, id="layer-os")
             yield Label("  OS Image (bootc)")
@@ -89,7 +89,7 @@ class ChannelCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("📡 Channel", classes="card--title")
+        yield Label("Channel", classes="card--title")
         yield Label("Loading...", id="channel-info")
 
     def on_mount(self) -> None:
@@ -100,7 +100,7 @@ class ChannelCard(Static):
 
         info = await get_system_info()
         channel = info.image_tag or "unknown"
-        ref = info.image_ref or "—"
+        ref = info.image_ref or "-"
 
         self.query_one("#channel-info", Label).update(
             f"  Current: {channel}\n"
@@ -118,7 +118,7 @@ class RollbackCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("⏪ Rollback", classes="card--title")
+        yield Label("Rollback", classes="card--title")
         yield Label("Loading...", id="rollback-info")
 
     def on_mount(self) -> None:
@@ -156,7 +156,7 @@ class RollbackCard(Static):
 
 
 class UpdatesScreen(Screen):
-    """Update management — strategy, focus mode, channel."""
+    """Update management - strategy, focus mode, channel."""
 
     BINDINGS = [
         ("f", "toggle_focus", "Focus Mode"),

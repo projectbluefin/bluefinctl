@@ -1,4 +1,4 @@
-"""Packages screen — individual package management.
+"""Packages screen - individual package management.
 
 This is the "escape hatch" for packages not in any bundle.
 Shows user-added packages and allows search/add/remove.
@@ -55,11 +55,11 @@ class PackageTable(Static):
         # Show user packages and outdated system packages
         for pkg in state.packages:
             if pkg.source == PackageSource.USER:
-                status = "⟳ outdated" if pkg.outdated else "✓"
-                table.add_row(pkg.name, pkg.type.value, pkg.version or "—", status)
+                status = "~ outdated" if pkg.outdated else "ok"
+                table.add_row(pkg.name, pkg.type.value, pkg.version or "-", status)
 
         if not state.user_packages:
-            table.add_row("(no user packages)", "—", "—", "—")
+            table.add_row("(no user packages)", "-", "-", "-")
 
 
 class PackagesScreen(Screen):
@@ -79,8 +79,8 @@ class PackagesScreen(Screen):
                 yield PackageSearch()
                 yield PackageTable()
                 yield Label(
-                    "  [a]dd  [r]emove  [u]pgrade all  [/]search  │  "
-                    "User packages only — bundle packages shown in [2] Bundles",
+                    "  [a]dd  [r]emove  [u]pgrade all  [/]search  |  "
+                    "User packages only - bundle packages shown in [2] Bundles",
                     id="pkg-footer",
                 )
 

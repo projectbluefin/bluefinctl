@@ -62,7 +62,7 @@ BUNDLE_REGISTRY: dict[str, BundleMeta] = {
         name="CLI Essentials",
         description="Core command-line tools — atuin, bat, eza, fd, gh, ripgrep, starship, zoxide",
         category=BundleCategory.FOUNDATION,
-        icon="⌨️",
+        icon=">>",
         base=True,
     ),
     "fonts": BundleMeta(
@@ -70,77 +70,77 @@ BUNDLE_REGISTRY: dict[str, BundleMeta] = {
         name="Nerd Fonts",
         description="Patched developer fonts — FiraCode, JetBrains Mono, Hack, Meslo, Noto",
         category=BundleCategory.FOUNDATION,
-        icon="🔤",
+        icon="Aa",
     ),
     "ide": BundleMeta(
         slug="ide",
         name="IDEs",
         description="VS Code, Neovim, Helix, devcontainer CLI",
         category=BundleCategory.DEVELOPMENT,
-        icon="📝",
+        icon="[]",
     ),
     "experimental-ide": BundleMeta(
         slug="experimental-ide",
         name="Experimental IDEs",
         description="Bleeding edge — Cursor, Zed, individual JetBrains IDEs",
         category=BundleCategory.DEVELOPMENT,
-        icon="🧪",
+        icon="~~",
     ),
     "swift": BundleMeta(
         slug="swift",
         name="Swift",
         description="Swift development tools — swiftly, swiftlint, swiftformat",
         category=BundleCategory.DEVELOPMENT,
-        icon="🐦",
+        icon="<>",
     ),
     "ai-tools": BundleMeta(
         slug="ai-tools",
         name="AI Tools",
         description="AI CLI & desktop — claude-code, aichat, goose, ramalama, LM Studio, Ollama",
         category=BundleCategory.AI,
-        icon="🤖",
+        icon="AI",
     ),
     "k8s-tools": BundleMeta(
         slug="k8s-tools",
         name="Kubernetes",
         description="Container orchestration — kubectl, helm, kind, k9s, k3d, lens",
         category=BundleCategory.CLOUD,
-        icon="☸️",
+        icon="k8",
     ),
     "cncf": BundleMeta(
         slug="cncf",
         name="CNCF Landscape",
         description="89 Cloud Native Computing Foundation tools — graduated, incubating, sandbox",
         category=BundleCategory.CLOUD,
-        icon="☁️",
+        icon="::",
     ),
     "full-desktop": BundleMeta(
         slug="full-desktop",
         name="GNOME Circle Apps",
         description="~60 curated GNOME desktop applications via Flatpak",
         category=BundleCategory.DESKTOP,
-        icon="🖥️",
+        icon="##",
     ),
     "system-flatpaks": BundleMeta(
         slug="system-flatpaks",
         name="System Flatpaks",
         description="Default desktop applications — browser, office, media, utilities",
         category=BundleCategory.DESKTOP,
-        icon="📦",
+        icon="==",
     ),
     "system-dx-flatpaks": BundleMeta(
         slug="system-dx-flatpaks",
         name="DX Flatpaks",
         description="Developer experience — Podman Desktop, Ptyxis, Warehouse",
         category=BundleCategory.DESKTOP,
-        icon="🛠️",
+        icon="dx",
     ),
     "artwork": BundleMeta(
         slug="artwork",
         name="Wallpapers",
         description="Curated wallpaper packs for your desktop",
         category=BundleCategory.DESKTOP,
-        icon="🎨",
+        icon="**",
     ),
 }
 
@@ -170,13 +170,13 @@ class Bundle:
         """Return a status character for the sidebar/list."""
         match self.state:
             case BundleState.BASE:
-                return "◆"  # Solid — always on
+                return "#"  # Solid — always on
             case BundleState.ACTIVE:
-                return "●"  # Filled circle — opted in
+                return "*"  # Filled circle — opted in
             case BundleState.PARTIAL:
-                return "◐"  # Half — partially installed
+                return "~"  # Half — partially installed
             case BundleState.AVAILABLE:
-                return "○"  # Empty — not installed
+                return "."  # Empty — not installed
 
 
 def _parse_brewfile_names(path: Path) -> list[str]:
@@ -265,7 +265,7 @@ async def get_bundles() -> list[Bundle]:
                     name=slug.replace("-", " ").title(),
                     description=f"Bundle: {slug}",
                     category=BundleCategory.DESKTOP,
-                    icon="📋",
+                    icon="--",
                 )
 
             # Parse contents and check installation state

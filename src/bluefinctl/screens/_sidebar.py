@@ -33,11 +33,11 @@ class Sidebar(Static):
     def compose(self) -> ComposeResult:
         with Vertical():
             # App title
-            yield Label(" 🐟 bluefinctl", id="sidebar-title")
+            yield Label(" bluefinctl", id="sidebar-title")
             yield Label("", classes="sidebar--spacer")
 
             for key, slug, name in NAV_ITEMS:
                 is_active = slug == self._active
-                indicator = "●" if is_active else " "
+                indicator = "*" if is_active else " "
                 css_class = "sidebar--item -active" if is_active else "sidebar--item"
                 yield Label(f" {indicator} [{key}] {name}", classes=css_class)

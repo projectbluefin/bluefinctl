@@ -74,21 +74,21 @@ class UpdateStatus:
         """Render as multi-line string for dashboard card."""
         focus_indicator = ""
         if self.focus_mode and self.focus_mode.active:
-            focus_indicator = " 🎯 FOCUS"
+            focus_indicator = " [FOCUS]"
 
-        os_status = "✓ Current" if self.os_current else "⟳ Update available"
+        os_status = "ok Current" if self.os_current else "~ Update available"
         if self.os_staged:
-            os_status = "⏳ Staged (reboot to apply)"
+            os_status = "> Staged (reboot to apply)"
 
         flatpak_status = (
-            f"⟳ {self.flatpak_updates} updates"
+            f"~ {self.flatpak_updates} updates"
             if self.flatpak_updates > 0
-            else "✓ Current"
+            else "ok Current"
         )
         brew_status = (
-            f"⟳ {self.brew_updates} updates"
+            f"~ {self.brew_updates} updates"
             if self.brew_updates > 0
-            else "✓ Current"
+            else "ok Current"
         )
 
         lines = [
@@ -196,7 +196,7 @@ async def get_update_status() -> UpdateStatus:
     )
 
 
-# ─── Focus Mode ─────────────────────────────────────────────
+# ——— Focus Mode —————————————————————————————————————————————
 
 async def activate_focus_mode(
     duration_hours: int | None = None,
@@ -250,7 +250,7 @@ async def deactivate_focus_mode() -> None:
     _write_state(state)
 
 
-# ─── CLI entry point ─────────────────────────────────────────
+# ——— CLI entry point —————————————————————————————————————————
 
 def run_update(check_only: bool = False) -> None:
     """Run update from CLI (non-interactive)."""
@@ -270,6 +270,6 @@ def run_update(check_only: bool = False) -> None:
             text=True,
         )
         if result.returncode == 0:
-            console.print("[green]✓[/green] Update triggered successfully")
+            console.print("[green]ok[/green] Update triggered successfully")
         else:
-            console.print(f"[red]✗[/red] Failed: {result.stderr.strip()}")
+            console.print(f"[red]X[/red] Failed: {result.stderr.strip()}")
