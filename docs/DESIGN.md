@@ -2,247 +2,562 @@
 
 ## Overview
 
-`bluefinctl` is the unified TUI control panel for Bluefin OS. Built on [Textual](https://textual.textualize.io/), it replaces the scattered `ujust` + `gum` interactions with a persistent, keyboard-driven dashboard inspired by lazydocker.
+`bluefinctl` is the unified TUI control panel for Bluefin OS. Built on [Textual](https://textual.textualize.io/), it replaces scattered `ujust` + `gum` interactions with a persistent, keyboard-driven dashboard. It is the single pane of glass for system identity, updates, developer tooling, and AI workstation management.
 
-**Replaces:** bbrew (bold-brew), devmode toggle scripts, update toggle scripts, various ujust one-shots.
+**Design philosophy:** An operating system control panel that feels like it was designed for the GNOME desktop. Clean, classy, consistent. Every subprocess operation (brew, podman, bootc) is unified behind the same progress bars and visual language. No ugly terminal output leaks through.
 
-**Does NOT replace:** finupdate (graphical update progress), control-center (GTK settings), ujust (backward compat layer).
+**Replaces:** bbrew (bold-brew), `ujust devmode`, `ujust aimode`, `ujust dx-group`, update toggle scripts, various ujust one-shots.
+
+**Does NOT replace:** Bazaar (Flatpak app store), GNOME Control Center (GTK settings), ujust (backward compat layer stays), podman-tui (full container management).
+
+---
 
 ## Invocation
 
 ```bash
-bluefinctl              # Full TUI dashboard
-bluefinctl brew         # Jump to brew screen
-bluefinctl update       # Trigger update (non-interactive)
-bluefinctl update --check  # Check for updates only
-bluefinctl devmode      # Toggle devmode
-bluefinctl ai           # AI stack management
-bluefinctl status       # One-shot system status (scriptable)
+# TUI mode (interactive)
+bluefinctl                    # Full TUI, System screen
+bluefinctl system             # Jump to System screen
+bluefinctl updates            # Jump to Updates screen
+bluefinctl toolkit            # Jump to Toolkit screen
+bluefinctl devmode            # Jump to DevMode screen
+bluefinctl ai                 # Jump to AI screen
+
+# Headless mode (scriptable, no TUI)
+bluefinctl status             # One-shot system info (JSON output)
+bluefinctl update             # Trigger update now
+bluefinctl update --check     # Check for updates only
+bluefinctl focus on [--hours=N]   # Enable focus mode
+bluefinctl focus off              # Disable focus mode
+bluefinctl kit install <name>     # Install a kit
+bluefinctl kit list               # List kits and status
+bluefinctl install <source>:<pkg> # Install package (brew:ripgrep, flatpak:org.gimp.GIMP)
+bluefinctl ai deploy <stack>      # Deploy an AI stack
+bluefinctl ai list                # List available/running stacks
+bluefinctl ai stop <stack>        # Stop a running stack
+bluefinctl devmode on|off         # Toggle developer mode
+
+# Compatibility aliases (old commands map forward)
+bluefinctl brew       -> bluefinctl toolkit
+bluefinctl bundles    -> bluefinctl toolkit
 ```
 
-Every subcommand works headless (no TUI) for scripting/CI. The TUI is the default interactive mode.
+Every subcommand works headless (no TUI) for scripting/CI. The TUI is the default interactive mode. JSON output uses `--json` flag; otherwise output is human-readable Rich text.
 
 ---
 
 ## Architecture
 
 ```
-bluefinctl/
-├── src/bluefinctl/
-│   ├── __main__.py           # `python -m bluefinctl` entry
-│   ├── cli.py                # Typer CLI entry point
-│   ├── app.py                # Textual App, screen routing, keybinds
-│   ├── core/                 # Business logic (TUI-independent, testable)
-│   │   ├── brew.py           # Brewfile parser, bundle operations
-│   │   ├── system.py         # image-info, GPU detection, bootc status
-│   │   ├── updates.py        # uupd config, systemd timer management
-│   │   ├── devmode.py        # Developer mode toggle logic
-│   │   ├── containers.py     # Podman pod/quadlet management
-│   │   └── ai.py             # AI stack deployment (nvidia/amd)
-│   ├── screens/
-│   │   ├── dashboard.py      # System health overview + quick actions
-│   │   ├── brew.py           # Package management (Brewfile layers)
-│   │   ├── updates.py        # Update strategy + settings
-│   │   ├── containers.py     # Running pods/containers status
-│   │   ├── ai.py             # AI workspace management (v2)
-│   │   └── settings.py       # Devmode, testing channel, preferences
-│   ├── widgets/
-│   │   ├── status_bar.py     # Bottom bar: image version, GPU, uptime
-│   │   ├── progress.py       # OSC 9;4 aware multi-step progress
-│   │   ├── brewfile_tree.py  # Layered Brewfile view (system/user)
-│   │   ├── service_card.py   # Systemd service status card
-│   │   └── gpu_badge.py      # GPU type + VRAM indicator
-│   ├── theme/
-│   │   ├── accent.py         # GNOME accent color reader
-│   │   └── bluefin.tcss      # Textual CSS stylesheet
-│   └── util/
-│       ├── osc.py            # Terminal escape sequences (OSC 9;4, etc.)
-│       ├── ghostty.py        # Ghostty-specific features
-│       └── subprocess.py     # Async subprocess helpers
-├── tests/
-│   ├── test_brew.py
-│   ├── test_updates.py
-│   └── snapshots/            # Textual SVG snapshot tests
-├── pyproject.toml
-├── README.md
-└── docs/
-    ├── DESIGN.md             # This file
-    └── UPDATES.md            # Update panel deep-dive
+src/bluefinctl/
+├── __main__.py              # python -m bluefinctl entry
+├── cli.py                   # Typer CLI entry point (headless path for every operation)
+├── app.py                   # Textual App: screen registration, keybinds, theme, Command Palette
+├── core/                    # Business logic — NO Textual imports, fully testable
+│   ├── system.py            # image-info, GPU detection, bootc status
+│   ├── updates.py           # uupd config, systemd timer management, focus mode state machine
+│   ├── kits.py              # Kit discovery, install/remove, Brewfile layer management
+│   ├── devmode.py           # Developer mode: groups, runtime health, Lima lifecycle
+│   ├── ai.py                # AI stack: discovery, preflight, deploy, lifecycle
+│   ├── progress.py          # ProgressParser protocol, per-tool parsers
+│   └── operations.py        # Resumable operation state machine (for reboot-required flows)
+├── screens/
+│   ├── system.py            # System health overview + quick actions (cards)
+│   ├── updates.py           # Update strategy, focus, snooze, channel, rollback (cards)
+│   ├── toolkit.py           # Kit management (TabbedContent: Kits)
+│   ├── devmode.py           # Developer experience (TabbedContent: Overview/Tools/Environments)
+│   ├── ai.py                # AI workstation (TabbedContent: Stacks/Tools)
+│   └── _modals.py           # Shared modals: confirm, input, operation log, help
+├── widgets/
+│   ├── sidebar.py           # Left navigation with visual separators
+│   ├── operation_modal.py   # Unified progress: title + ProgressBar + collapsible log
+│   ├── kit_list.py          # Kit ListView with status indicators
+│   ├── stack_catalog.py     # AI stack catalog with VRAM badges
+│   ├── gpu_badge.py         # GPU vendor + VRAM indicator
+│   └── changelog.py         # MarkdownViewer wrapper for release notes
+├── theme/
+│   ├── accent.py            # GNOME accent color reader (gsettings)
+│   └── bluefin.tcss         # Textual CSS stylesheet
+└── util/
+    ├── osc.py               # OSC 9;4 progress, OSC 8 hyperlinks
+    ├── ghostty.py           # Ghostty detection, Kitty keyboard protocol
+    └── terminal.py          # Launch external apps (podman-tui) in new terminal
 ```
+
+### Key Architectural Rules
+
+1. **All subprocess calls, file I/O, and system state live in `core/`.** Screens only call core functions and present results.
+2. **Every operation has a headless CLI path (`cli.py`) and a TUI path (screens).** They share the same core functions.
+3. **Unified progress for all operations.** No raw subprocess output shown to users. Every tool gets a `ProgressParser` that extracts progress where possible.
+4. **Resumable operations.** Operations requiring reboot/logout persist state to `~/.local/state/bluefinctl/operations.json` and resume on next launch.
+
+### State Management
+
+```
+User action
+  -> Screen dispatches to core/ function
+    -> core/ returns progress updates via async generator
+      -> Screen feeds updates to OperationModal widget
+        -> OperationModal drives ProgressBar + optional log
+          -> OSC 9;4 emitted in parallel for terminal integration
+```
+
+### Update Policy State Machine
+
+Precedence (highest wins):
+1. **Focus Mode** — masks uupd.timer entirely, stores previous strategy
+2. **Snooze** — temporary mask with scheduled unmask
+3. **Strategy** — Automatic/Notify/Manual/Scheduled
+4. **Per-layer** — OS Image/Flatpaks/Brew independently disabled
+5. **Channel/pin** — which image ref to track
+
+Disabling Focus/Snooze restores the exact previous strategy state, not "enable timer."
+
+### Resumable Operations
+
+Operations that require reboot/logout use a state machine:
+
+```
+States: preflight -> executing -> needs-relogin -> needs-reboot
+        -> pending-verification -> complete | failed
+
+Persisted to: ~/.local/state/bluefinctl/operations.json
+On next launch: check for pending operations, resume verification
+```
+
+Used by: Lima setup (KVM group), devmode enable (group changes), bootc switch/rollback.
 
 ---
 
 ## Screens
 
-### 1. Dashboard (home)
+### Navigation
 
-The landing screen. At-a-glance system health.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  🐟 bluefinctl                              bluefin:41-stable │
-├──────────┬──────────────────────────────────────────────────┤
-│          │                                                   │
-│ ● System │  ╭─ System ──────────────────────────────╮       │
-│   Brew   │  │ Image: bluefin-dx:41-stable           │       │
-│   Update │  │ Boot:  Current (deployed 2h ago)      │       │
-│   Pods   │  │ GPU:   NVIDIA RTX 4090 (24GB VRAM)   │       │
-│   AI     │  │ Mode:  Developer                      │       │
-│   Config │  ╰───────────────────────────────────────╯       │
-│          │                                                   │
-│          │  ╭─ Updates ─────────────────────────────╮       │
-│          │  │ Strategy: Automatic                    │       │
-│          │  │ OS Image: ✓ Current                    │       │
-│          │  │ Flatpaks: ⟳ 3 updates available       │       │
-│          │  │ Brew:     ✓ Current (42 packages)     │       │
-│          │  ╰───────────────────────────────────────╯       │
-│          │                                                   │
-│          │  ╭─ Quick Actions ───────────────────────╮       │
-│          │  │ [u] Update All  [d] Devmode  [r] Report│      │
-│          │  ╰───────────────────────────────────────╯       │
-│          │                                                   │
-├──────────┴──────────────────────────────────────────────────┤
-│ q:quit  ?:help  /:search  Tab:navigate  Enter:select        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2. Brew Screen
-
-Replaces bbrew. Shows layered Brewfile with provenance.
+Five screens in a flat sidebar with visual group separators:
 
 ```
-┌─ Packages ──────────────────────────────────────────────────┐
-│ Filter: [___________]                    42 installed / 3 pending │
-├─────────────────────────────────────────────────────────────┤
-│ ☑ bat          🏭 system    A cat clone with wings          │
-│ ☑ eza          🏭 system    Modern ls replacement           │
-│ ☑ fd           🏭 system    Simple find alternative         │
-│ ☑ ripgrep      👤 user      Fast grep                       │
-│ ☑ lazygit      👤 user      Terminal UI for git             │
-│ ☐ neovim       👤 disabled  (removed from base)            │
-│                                                              │
-│ ── Casks ──                                                  │
-│ ☑ 1password    👤 user      Password manager               │
-├─────────────────────────────────────────────────────────────┤
-│ [a]dd  [r]emove  [u]pgrade all  [s]earch  [B]rewfile edit   │
-└─────────────────────────────────────────────────────────────┘
+ bluefinctl
+
+ * [1] System
+   [2] Updates
+ ──────────────
+   [3] Toolkit
+ ──────────────
+   [4] DevMode
+   [5] AI
 ```
 
-Provenance:
-- 🏭 **system** — shipped in `/usr/share/ublue-os/homebrew/*.Brewfile` (read-only)
-- 👤 **user** — added to `~/.config/bluefin/Brewfile`
-- ❌ **disabled** — user removed a system package via blocklist
+Number keys 1-5 switch screens instantly. Sidebar items are clickable. Active screen has accent-colored left border.
 
-### 3. Updates Screen
+### Platform Detection
 
-Direct interface with uupd. See [UPDATES.md](./UPDATES.md) for deep-dive.
+bluefinctl ships via Homebrew and can run on any Linux (or macOS/WSL via `bluefin-cli`). On non-bootc/non-Universal Blue systems:
 
-### 4. Containers Screen
+- **System screen is hidden** — no bootc status, no image identity, no rollback
+- **Updates screen is hidden** — no uupd daemon to configure
+- Sidebar shows only: Toolkit, DevMode, AI (3 screens, keys 1-3)
+- Default home screen becomes Toolkit
 
-Podman pod/container status. Light management.
-
-```
-┌─ Pods & Containers ─────────────────────────────────────────┐
-│                                                              │
-│ ▼ pod/ai-workspace          Running    3 containers         │
-│   ├─ jupyter-lab            Running    ↑ 4h    8080→8080    │
-│   ├─ ollama                 Running    ↑ 4h    11434→11434  │
-│   └─ open-webui             Running    ↑ 4h    3000→3000    │
-│                                                              │
-│ ▼ pod/dev-services          Running    2 containers         │
-│   ├─ postgres               Running    ↑ 12h   5432→5432    │
-│   └─ redis                  Running    ↑ 12h   6379→6379    │
-│                                                              │
-│ ▶ pod/media (stopped)       Exited     3 containers         │
-│                                                              │
-├─────────────────────────────────────────────────────────────┤
-│ [s]tart  [S]top  [r]estart  [l]ogs  [p]ull updates         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 5. AI Screen (v2)
-
-Centralized hub for AI stack management on systems with GPU.
-
-### 6. Settings Screen
-
-Devmode toggle, testing channel, preferences.
+Detection: check for `/run/ostree-booted` or `bootc status` exit code. If neither succeeds, the system is not an immutable image and System/Updates are not applicable.
 
 ---
 
-## Update Management (uupd Integration)
+### 1. System (home)
 
-### Philosophy
+The landing screen. At-a-glance machine identity and health. Cards layout, scrollable. **Only shown on bootc/Universal Blue systems.**
 
-bluefinctl is a **policy UI** over uupd — it doesn't replace the daemon, it configures it and provides UX around its operations.
+**Cards:**
 
-### Strategy Selector
+| Card | Content |
+|------|---------|
+| Identity | Full image ref: `ghcr.io/projectbluefin/bluefin:43-stable`, boot status, hostname |
+| Hardware | GPU: `NVIDIA RTX 4090 (24 GB VRAM)` or `AMD Radeon RX 7900 XTX (24 GB)`, CPU, RAM |
+| Health | `[ok] GPU driver  [ok] systemd  [ok] Homebrew  [!] 2 updates available` |
+| Running Services | Pod count: `3 pods active (2 AI, 1 dev)` with `[c]` launch podman-tui |
+| Active Kits | Summary: `Terminal, AI Tools, Fonts — 53 packages managed` |
+| Quick Actions | `[u] Update All  [d] Devmode  [r] System Report` |
 
-| Strategy | Behavior | uupd State |
-|----------|----------|------------|
-| **Automatic** (default) | uupd handles everything silently | timer enabled, all modules active |
-| **Notify** | Download + stage, notify user to reboot | timer enabled, `notify-only: true` |
-| **Manual** | Only update when user triggers | timer disabled |
-| **Scheduled** | Update in a specific window | timer with custom `OnCalendar=` |
+**Interactions:**
+- `u` — trigger update (shows progress modal)
+- `d` — toggle devmode (confirmation modal)
+- `r` — generate system report (shows in operation modal)
+- `c` — launch podman-tui in a new terminal window
+- Enter on any card — jump to relevant screen
 
-### Per-Layer Control
+**Degraded mode:** If `podman-tui` is not installed, Running Services card shows "Install podman-tui" action. If GPU detection fails, Hardware card shows "No discrete GPU detected."
 
-Each layer independently toggleable:
-- **OS Image** (bootc) — auto / manual / pinned
-- **Flatpaks** — auto / manual
-- **Brew** — auto / manual / weekly-only
+---
 
-Maps to uupd config `modules.*.disable` fields.
+### 2. Updates
 
-### Focus Mode 🎯
+Update policy management. Cards layout, scrollable. Dangerous operations (channel switch, rollback) gated behind confirmation modals. **Only shown on bootc/Universal Blue systems.**
 
-The killer feature for developers and AI users:
+**Cards:**
 
-> "Don't touch anything until I say so."
+| Card | Content |
+|------|---------|
+| Strategy | RadioSet: Automatic / Notify / Manual / Scheduled |
+| Focus Mode | Switch + duration input. Persistent status bar indicator when active |
+| Per-Layer Control | Three switches: OS Image (bootc), Flatpaks, Homebrew |
+| Deferral | When updates pending: `[1h] [Tonight] [Tomorrow] [Skip version]` |
+| Channel | Current: `ghcr.io/projectbluefin/bluefin:43-stable`. Actions: `[s]table [t]esting [p]in` |
+| Rollback | Previous deployment + calendar date picker (see below) |
+| Changelog | MarkdownViewer showing latest release notes from upstream |
 
-One toggle that:
-1. Masks `uupd.timer`
-2. Shows a persistent indicator in the status bar
-3. Optionally auto-expires after N hours (configurable)
-4. Reminds user after 7 days if still active
+**Rollback Calendar Card:**
 
-Use cases:
-- Mid-training run (don't restart GPU containers)
-- Demo day (don't change anything)
-- Deep work session (no reboot prompts)
-
-### Deferral (Snooze)
-
-When an update is available and strategy is "Notify":
-- **1 hour** — mask timer, schedule one-shot unmask
-- **Tonight** — unmask at 2 AM
-- **Tomorrow** — unmask in 24h
-- **Skip this version** — add current target to skip list until next release
-
-### Channel Management
+Inline calendar widget showing the last 90 days. Each date cell indicates image availability:
 
 ```
-Stable (recommended)     ← ghcr.io/projectbluefin/bluefin:latest
-Testing                  ← ghcr.io/projectbluefin/bluefin:testing
-Pinned: 41-20240601      ← ghcr.io/projectbluefin/bluefin:41-20240601
+ Rollback — pin to a previous image
+ Current: ghcr.io/projectbluefin/bluefin:43-stable (deployed 2h ago)
+ Previous: ghcr.io/projectbluefin/bluefin:43-20260611 (bootc rollback)
+
+ June 2026
+ Mo Tu We Th Fr Sa Su
+                    1
+  2  3  4  5  6  7  8
+  9 10 11 12 [13] .  .     [today]  available  .  no build
+ . = not yet verified
 ```
 
-Channel switch = `bootc switch --target <ref>`. Gated with confirmation dialog explaining implications.
+**How it works (cheap registry queries):**
+- Tag format is predictable: `<version>-<YYYYMMDD>` (e.g., `43-20260610`)
+- On mount: verify last 7 days asynchronously (7 quick `skopeo inspect` calls in background Worker)
+- On scroll to older dates: verify on demand, cache results
+- Cache persisted to `~/.local/state/bluefinctl/available-images.json` (TTL: 24h)
+- Selecting a date: one verification call, then confirmation modal -> `bootc switch --target <ref>`
+- Total cost: ~7 lightweight manifest HEAD requests on first view, cached thereafter
 
-### Rollback
+**Interactions:**
+- Arrow keys navigate calendar dates
+- Enter on a date — verify + confirmation modal: "Switch to image from June 10? Reboot required."
+- `[R]` — quick rollback to previous deployment (no calendar, just `bootc rollback`)
+- Strategy change — immediate effect, toast notification confirms
+- Focus toggle — modal asks for duration (blank = indefinite)
+- Channel switch — confirmation modal showing target ref and "reboot required"
+- `u` — update now (unified progress modal)
 
-Read from `bootc status --json`:
-- Show current + previous deployment
-- One-action rollback: `bootc rollback`
-- Mark current as "known good" (informational badge)
+**State machine enforcement:** Turning off Focus restores previous strategy. Snooze auto-unmasks at scheduled time. UI reflects actual systemd timer state on load.
 
-### Health Checks (post-update)
+---
 
-After a new boot into a new deployment, bluefinctl runs lightweight checks:
-- GPU driver loaded? (`nvidia-smi` / `rocm-smi` exit code)
-- systemd services healthy? (no failed units in user slice)
-- Brew still linked? (`brew doctor` exit code)
-- Display results on dashboard with ✓/⚠/✗
+### 3. Toolkit
+
+Software kit management. TabbedContent with one tab: **Kits**.
+
+Individual package installation lives in the Command Palette (Ctrl+P), not on this screen. Footer shows: `Ctrl+P: install/search packages | Enter: activate kit | r: refresh`
+
+**Kits tab (default):**
+
+Two-column layout: kit list (left) + detail pane (right).
+
+Kit list shows use-case oriented collections:
+
+```
+  Terminal Experience     17 tools    [active]
+  AI & ML Tools          24 tools    [active]
+  Code Editors           12 tools    [3/12]
+  Kubernetes             12 tools    [available]
+  Cloud Native           89 tools    [available]
+  Fonts                  12 fonts    [active]
+  Swift                   3 tools    [available]
+```
+
+Select a kit -> detail pane shows:
+- Description (what use case it solves)
+- Full package list with install status
+- Total disk usage estimate
+- Activate/Deactivate action
+- For deactivation: preview of packages to be removed (distinguish kit-owned vs shared)
+
+**Kit sources:** Read from `/usr/share/ublue-os/homebrew/*.Brewfile`. Each Brewfile is one kit. Kit metadata (name, description, category) derived from filename and optional header comments.
+
+**Interactions:**
+- Arrow keys / j,k — navigate kit list
+- Enter — activate or deactivate selected kit (confirmation for deactivate)
+- r — refresh kit state
+- Ctrl+P — open Command Palette for individual package search/install
+
+---
+
+### 4. DevMode
+
+The developer experience panel. This IS the DX mode — no separate image required. TabbedContent with 3 tabs.
+
+**Tab: Overview**
+
+| Card | Content |
+|------|---------|
+| Status | "Developer Mode: ACTIVE" or setup prompt if groups not configured |
+| Runtime Health | Docker: `[ok]` / Podman: `[ok]` / Lima: `[--] not set up` |
+| Quick Actions | `[c]` podman-tui, `[v]` VSCode, `[l]` Lima shell |
+
+Group management (docker/mock/lxd/incus-admin) is handled silently during "Enable Developer Mode" — the user doesn't see group commands, just a progress bar and "log out to apply."
+
+**Tab: Tools**
+
+ListView of developer tools with install status:
+
+```
+ -- Dev Tools --
+  [ok] podman-compose    Container orchestration
+  [ok] dive              Container layer explorer
+  [ok] kind              Local Kubernetes
+  [--] devcontainer      Devcontainer CLI (not installed)
+
+ -- Performance --
+  [ok] sysprof           System profiler
+  [ok] bcc              BPF compiler collection
+  [--] bpftrace         (not installed)
+
+ -- Virtualization --
+  [ok] QEMU/KVM         Hardware virtualization
+  [--] Incus            Container/VM manager (not installed)
+```
+
+Actions: Select tool + Enter to install. `[a]` install all missing. Tools are sourced from the relevant Brewfiles and system packages.
+
+**Tab: Environments**
+
+Three-tier development environment model:
+
+```
+ Tier 1: Podman Desktop          [active]    Docker-compatible, zero VM tax
+   Status: running | socket: active
+   Action: [open] Podman Desktop
+
+ Tier 2: Distrobox               [3 containers]
+   ubuntu-24.04                  [running]   Pet container
+   fedora-41                     [stopped]   Pet container
+   wolfi                         [running]   Pet container
+   Action: [n]ew container  [e]nter selected
+
+ Tier 3: Lima                    [not set up]
+   WSL-equivalent Ubuntu VM — persistent, $HOME mounted, VSCode wired
+   Action: [Enter] to run guided setup
+```
+
+**Lima guided setup** (multi-step, unified progress):
+```
+Step 1/5: Checking KVM access...              [====] done
+Step 2/5: Installing Lima via Homebrew...     [==  ] pulling
+Step 3/5: Starting Ubuntu VM (~600 MB)...     [=   ] downloading
+Step 4/5: Wiring SSH config...                [    ] pending
+Step 5/5: Verifying connection...             [    ] pending
+```
+
+If KVM group is needed: operation enters `needs-relogin` state, notifies user, and resumes verification on next login.
+
+**Devcontainer detection:** Scans `~/src/` (configurable) for `.devcontainer/` directories. Shows projects with devcontainer support and offers "Open in VSCode" action.
+
+---
+
+### 5. AI
+
+AI workstation management — the "app store" for GPU-accelerated stacks. TabbedContent with 2 tabs.
+
+**Tab: Stacks (default)**
+
+GPU detection card at top:
+```
+ GPU: NVIDIA RTX 4090 | 24 GB VRAM | CDI: active | Driver: 560.35
+```
+or
+```
+ GPU: AMD Radeon RX 7900 XTX | 24 GB VRAM | /dev/kfd: ok | ROCm: 7.2.4
+```
+
+Category filter bar: `[All] [Serve] [Dev] [Train]`
+
+Stack catalog (ListView with detail pane):
+
+```
+ [*] Lemonade         4 GB   serve   ROCm + Vulkan + NPU local AI server
+ [*] PyTorch Lab      8 GB   dev     CUDA/ROCm + JupyterLab workspace
+ [ ] NIM Phi-3.5      8 GB   nim     NVIDIA optimized small LLM
+ [ ] NIM Llama3      16 GB   nim     NVIDIA optimized inference
+ [-] NeMo Training   24 GB   train   (exceeds 16 GB available)
+```
+
+Legend: `[*]` running, `[ ]` available, `[-]` exceeds VRAM (greyed out, confirmation override to deploy anyway)
+
+**Detail pane** (right side) for selected stack:
+- Description
+- Image ref (full OCI: `nvcr.io/nvidia/pytorch:25.06-py3`)
+- VRAM requirement + disk estimate
+- Ports exposed (with OSC 8 clickable links when running)
+- Dependencies (NGC auth, HuggingFace token, render group)
+- Deploy / Stop / Logs actions
+
+**Deploy flow:**
+1. Select stack, press Enter
+2. **Preflight check** (automatic): GPU available? Driver ready? Ports free? Disk space? Auth tokens?
+3. **Confirmation modal**: Shows images to pull, disk use, ports, services created
+4. **Unified progress**: Copy quadlet -> daemon-reload -> pull image -> start pod
+5. **Running state**: Stack appears with `[*]`, ports shown as clickable links
+6. On failure: clean up copied quadlet units, show error in log
+
+**Stack architecture:** One pod per stack. Even single-container stacks get their own pod for consistent networking, lifecycle, and future sidecar support. Stacks read from `/usr/share/ublue-os/{nvidia,amd}-stacks/`. Metadata in `stack.env`.
+
+**Model management:** Via Lemonade (AMD) or Docker Model (NVIDIA). No Ollama.
+
+**Tab: Tools**
+
+AI CLI tools kit status:
+
+```
+ AI & ML Tools kit                    [active]  24 tools installed
+
+ Coding Agents:
+  [ok] goose              Block Protocol AI agent
+  [ok] claude-code        Claude coding agent
+  [ok] copilot-cli        GitHub Copilot terminal
+
+ Local AI:
+  [ok] lemonade           AMD-native LLM server (via stack)
+  [ok] whisper-cpp        Speech-to-text
+  [ok] llm                CLI for language models
+
+ Model Tools:
+  [ok] docker model       Docker model management
+  [--] lm-studio          (not installed)
+```
+
+One-action install/update for the full AI tools kit. Lemonade server status shown inline when running.
+
+---
+
+## Unified Progress System
+
+Every operation in bluefinctl — brew install, podman pull, bootc switch, Lima setup — uses the same visual treatment:
+
+### OperationModal widget
+
+```
+┌─ Installing Kit: Kubernetes ─────────────────────────────┐
+│                                                           │
+│  Step 2/3: Installing packages via Homebrew               │
+│  ████████████░░░░░░░░░░░░░░░░░░░░░  8/12 packages        │
+│                                                           │
+│  [l] Show log                                             │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+```
+
+**Components:**
+1. Title (operation name)
+2. Step description (current step in multi-step operations)
+3. ProgressBar — accent-colored, determinate where parseable, indeterminate otherwise
+4. Collapsible raw log (hidden by default, expand with `l` or click)
+5. Cancel action (Escape)
+
+**ProgressParser protocol** (`core/progress.py`):
+
+```python
+class ProgressParser(Protocol):
+    def parse_line(self, line: str) -> ProgressUpdate | None: ...
+
+@dataclass
+class ProgressUpdate:
+    percent: float | None     # None = indeterminate
+    step: int | None
+    total_steps: int | None
+    message: str
+```
+
+Per-tool implementations:
+- `PodmanPullParser` — parses layer download percentages
+- `BrewInstallParser` — counts formula installs against total
+- `BootcSwitchParser` — stage detection (downloading, staging, complete)
+- `MultiStepParser` — for wizard flows (Lima, devmode enable)
+
+**OSC 9;4 integration:** Every ProgressBar update also emits the terminal progress escape sequence, so the terminal tab/titlebar shows progress even if the modal is not visible.
+
+---
+
+## Command Palette
+
+`Ctrl+P` opens the Textual Command Palette with:
+
+**Package operations:**
+- `install brew:ripgrep` — install Homebrew formula
+- `install flatpak:org.gimp.GIMP` — install Flatpak
+- `remove brew:bat` — remove package
+- Search results show source badges: `[brew formula]`, `[brew cask]`, `[flatpak]`
+
+**Navigation:**
+- `Go to System`, `Go to AI`, etc.
+- `Open podman-tui`
+- `Open changelog`
+
+**Actions:**
+- `Update all`
+- `Toggle focus mode`
+- `Deploy AI stack...`
+- `Enable developer mode`
+
+Results always show explicit source. Never silently choose between name conflicts.
+
+---
+
+## Keyboard and Mouse
+
+### Global shortcuts (work from any screen)
+
+| Key | Action |
+|-----|--------|
+| `1`-`5` | Jump to screen |
+| `q` | Quit |
+| `?` | Help modal (full shortcut reference) |
+| `Ctrl+P` | Command Palette |
+| `Tab` / `Shift+Tab` | Focus next/previous widget |
+| `Escape` | Close modal / cancel operation |
+
+### Navigation (lists, trees, tables)
+
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` / `j` / `k` | Move selection |
+| `Enter` | Activate / drill into |
+| `g` / `G` | Jump to top / bottom |
+| `Home` / `End` | Jump to top / bottom |
+| `/` | Focus search/filter (where available) |
+
+### Mouse
+
+- Click sidebar items — switch screen
+- Click list/table items — select
+- Click buttons/tabs — activate
+- Scroll anywhere — scroll content
+- Click card titles — expand/collapse where applicable
+
+### Per-screen shortcuts
+
+Shown in the footer bar. The footer updates dynamically based on the active screen and focused widget. Example footers:
+
+```
+System:    u:update  d:devmode  c:podman-tui  r:report  ?:help
+Updates:   f:focus  u:update now  s:stable  t:testing  R:rollback  ?:help
+Toolkit:   Enter:activate  r:refresh  Ctrl+P:install  ?:help
+DevMode:   Enter:install/setup  a:install all  c:podman-tui  ?:help
+AI:        Enter:deploy  s:stop  l:logs  f:filter  ?:help
+```
+
+### Help Modal (`?`)
+
+Full-screen modal with shortcuts grouped:
+
+```
+ Global          Navigation       This Screen
+ ─────────────   ──────────────   ─────────────────────
+ 1-5  Screens    Up/j   Move up   u  Update All
+ q    Quit       Down/k Move dn   d  Toggle Devmode
+ ?    Help       Enter  Select    c  podman-tui
+ ^P   Palette    g/G    Top/Bot   r  System Report
+ Esc  Close      /      Search
+ Tab  Focus
+```
 
 ---
 
@@ -250,45 +565,116 @@ After a new boot into a new deployment, bluefinctl runs lightweight checks:
 
 ### GNOME Accent Color Integration
 
-Read at startup:
-```python
-gsettings get org.gnome.desktop.interface accent-color
-```
+Read at startup via `gsettings get org.gnome.desktop.interface accent-color`. Map to hex palette matching libadwaita's accent colors:
 
-Map to hex (same table as brewlove), inject as CSS variable:
+| Name | Hex |
+|------|-----|
+| blue | `#3584e4` |
+| teal | `#2190a4` |
+| green | `#3a944a` |
+| yellow | `#c88800` |
+| orange | `#ed5b00` |
+| red | `#e62d42` |
+| pink | `#d56199` |
+| purple | `#9141ac` |
+| slate | `#6f8396` |
 
-```css
-/* bluefin.tcss */
-$accent: #62a0ea;  /* overridden at runtime */
+Injected as `$accent` CSS variable. Drives: sidebar highlights, progress bar fill, card titles, active states, button hovers, focus rings.
 
-Screen {
-    background: $surface;
-}
+### Visual Language
 
-.sidebar--highlight {
-    background: $accent;
-}
-
-ProgressBar > .bar--complete {
-    color: $accent;
-}
-```
-
-Optionally watch live with `gsettings monitor` for real-time theme changes.
+- **Dark theme always** (`$background: #1a1a2e`, `$surface: #16213e`)
+- **Cards**: `border: round $border`, accent-colored titles, generous padding
+- **Status indicators**: `[ok]` (green), `[!]` (yellow), `[X]` (red), `[--]` (muted grey)
+- **No emojis** — text-based Unicode indicators only
+- **Full OCI refs** in detail panes (cards show abbreviated where space-constrained, detail always shows full)
+- **Monospace throughout** — system font
+- **GPU vendor colors**: NVIDIA `#76b900`, AMD `#ed1c24`, Intel `#0071c5`
 
 ### Terminal Integration
 
-- **OSC 9;4** — Progress in terminal tab/titlebar (Ghostty, Ptyxis, iTerm2)
-- **OSC 8** — Clickable hyperlinks in log output
-- **Ghostty** — Detect via `$TERM_PROGRAM=ghostty`, enable Kitty keyboard protocol for enhanced keybinds
-- **systemd TTY progress** — When running headless, emit `sd_notify` style progress for integration with systemd journal
+| Feature | Behavior |
+|---------|----------|
+| OSC 9;4 | Progress in terminal tab/titlebar (Ghostty, Ptyxis, iTerm2) |
+| OSC 8 | Clickable hyperlinks for ports (http://localhost:8888) |
+| Ghostty | Detect via `$TERM_PROGRAM=ghostty`, enable Kitty keyboard protocol |
+| Headless | Emit `sd_notify` style progress for systemd journal integration |
+
+---
+
+## AI Stack Architecture
+
+### Stack Discovery
+
+Stacks read from system directories:
+- NVIDIA: `/usr/share/ublue-os/nvidia-stacks/`
+- AMD: `/usr/share/ublue-os/amd-stacks/`
+
+Each stack directory contains:
+- `stack.env` — metadata (name, description, VRAM, category, ports, auth requirements)
+- `<name>.container` — Podman Quadlet container unit
+- `<name>-network.network` — Podman Quadlet network unit
+
+### Stack Manifest Schema (from stack.env)
+
+```bash
+STACK_ORDER=10           # Display order in catalog
+STACK_NAME="Lemonade"    # Human-readable name
+STACK_DESC="ROCm + Vulkan + NPU local AI server"
+STACK_CATEGORY="serve"   # serve | dev | train
+STACK_VRAM_GB=4          # Minimum VRAM requirement
+STACK_DISK_GB=4          # Estimated disk usage
+STACK_PORTS="api:13305"  # Named ports
+STACK_REQUIRES_NGC_AUTH=false
+STACK_REQUIRES_HF_AUTH=false
+```
+
+### Deployment Lifecycle
+
+```
+Preflight:
+  1. Detect GPU vendor (NVIDIA CDI / AMD KFD)
+  2. Check VRAM >= STACK_VRAM_GB (warn if not, allow override)
+  3. Check ports not in use
+  4. Check disk space
+  5. Check auth tokens if required (prompt if missing)
+  6. Check driver/runtime (CDI active? render group?)
+
+Deploy:
+  1. Copy .container + .network to ~/.config/containers/systemd/
+  2. systemctl --user daemon-reload
+  3. podman pull <image> (with progress parsing)
+  4. systemctl --user start <pod>
+  5. Verify pod is running
+
+Failure rollback:
+  - Remove copied quadlet files
+  - daemon-reload to clean state
+  - Report error with collapsible log
+
+Stop:
+  1. systemctl --user stop <pod>
+
+Remove:
+  1. systemctl --user stop <pod>
+  2. Remove quadlet files
+  3. daemon-reload
+  4. Optionally: podman rmi <image>, remove volumes
+```
+
+### One Pod Per Stack
+
+Every stack deploys as its own pod, even single-container stacks:
+- Consistent lifecycle (`podman pod start/stop`)
+- Network isolation per stack
+- Future-proof for sidecars (metrics, proxies)
+- Matches what podman-tui shows
 
 ---
 
 ## Distribution
 
 ```toml
-# pyproject.toml
 [project]
 name = "bluefinctl"
 requires-python = ">=3.12"
@@ -302,14 +688,19 @@ dependencies = [
 bluefinctl = "bluefinctl.cli:app"
 ```
 
-Install via:
-```bash
-brew install ublue-os/tap/bluefinctl
-# or
-pipx install bluefinctl
-```
+**No RPMs.** Shipped via Homebrew, baked into Bluefin images. Homebrew manages its own Python runtime.
 
-**No RPMs.** This is a userspace tool in the Homebrew/pipx layer.
+**Runtime dependencies** (expected on system):
+- `podman` (for AI stacks, container status)
+- `systemctl` (for uupd management, quadlet lifecycle)
+- `bootc` (for channel switch, rollback, image status)
+- `gsettings` (for GNOME accent color; graceful fallback to blue)
+- `brew` (for kit/package management)
+
+**Optional dependencies:**
+- `podman-tui` (launched for full container management)
+- `nvidia-smi` / `nvidia-ctk` (NVIDIA GPU detection)
+- `lima` (WSL-equivalent VM, installed on demand)
 
 ---
 
@@ -317,17 +708,17 @@ pipx install bluefinctl
 
 ### Strengths for bluefinctl
 
-| Feature | Value for Us |
-|---------|-------------|
-| CSS theming | Live accent color, theme variants without code changes |
-| Widget library | DataTable, Tree, TabbedContent, ProgressBar, RichLog — all needed |
+| Feature | Value |
+|---------|-------|
+| CSS theming | Live accent color injection, hot-reload during development |
+| Widget library | DataTable, Tree, TabbedContent, ProgressBar, MarkdownViewer, CommandPalette |
 | Workers API | Async subprocess management for brew/podman/bootc |
-| Command Palette | Ctrl+P discoverability for all actions |
+| Command Palette | Ctrl+P discoverability for all actions, built-in |
 | Snapshot testing | SVG renders for automated UI regression tests |
 | Screen system | Natural multi-page navigation |
-| Hot-reload CSS | Fast iteration on design |
+| MarkdownViewer | Rich changelog/help rendering in-terminal |
 
-### Risks & Mitigations
+### Risks and Mitigations
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
@@ -337,49 +728,100 @@ pipx install bluefinctl
 | Python on immutable OS | Medium | Ship via brew (manages its own Python) |
 | Missing widget | Low | Textual supports custom widgets easily |
 
-### Comparison to charm.sh (Bubbletea/Lipgloss/Gum)
+---
 
-| Dimension | Textual | Charm.sh ecosystem |
-|-----------|---------|-------------------|
-| Layout | CSS-based, automatic | Manual coordinate math |
-| Theming | CSS variables, hot-reload | Code changes required |
-| Widgets | 30+ built-in | ~10 in Bubbles, build the rest |
-| Testing | Snapshot + pilot automation | Manual testing |
-| Language | Python | Go |
-| Binary size | Needs runtime (brew Python) | Single static binary |
-| Dashboard suitability | Excellent (built for this) | Possible but painful |
-| Startup time | ~300ms | ~50ms |
-| AI integration | textual-ai, native Python | External process |
+## Implementation Roadmap
 
-**Verdict:** Textual wins decisively for a multi-panel dashboard. Bubbletea is better for single-purpose tools (which is why brewlove works). For the "lazydocker for bluefin" vision, Textual is the right choice.
+Progressive implementation order. Each phase produces a working, testable increment. Later phases build on earlier ones.
 
-### Bling Opportunities
+### Phase 1: Foundation
 
-- **Sparkline widgets** — CPU/GPU/memory mini-graphs in dashboard header
-- **Rich markdown** — Help screens rendered with full formatting
-- **Animated transitions** — Screen push/pop with slide animations
-- **Toast notifications** — "Update available" popups
-- **Color gradients** — Progress bars with accent→complement gradient
-- **ASCII art header** — Bluefin fish logo in the sidebar (small, tasteful)
+1. **Update `app.py`** — 5-screen registration (System, Updates, Toolkit, DevMode, AI), number-key bindings, sidebar with separators
+2. **Update `_sidebar.py`** — 5 NAV_ITEMS with visual separator support (render `──────` between groups)
+3. **Implement `core/operations.py`** — Resumable operation state machine (preflight/executing/needs-relogin/needs-reboot/pending-verification/complete/failed)
+4. **Implement `widgets/operation_modal.py`** — Unified OperationModal: title + step description + ProgressBar + collapsible LogView + OSC 9;4 emission
+5. **Implement `core/progress.py`** — ProgressParser protocol + MultiStepParser + indeterminate fallback
+
+### Phase 2: System Screen
+
+6. **Rewrite `screens/system.py`** — Card-based: Identity (full OCI ref), Hardware, Health, Running Services (pod summary + podman-tui launch), Active Kits summary, Quick Actions
+7. **Implement `util/terminal.py`** — Launch external app in new terminal (detect Ghostty/Ptyxis/gnome-terminal, spawn subprocess)
+8. **Update `core/system.py`** — Add pod count query, kit summary query
+
+### Phase 3: Updates Screen
+
+9. **Rewrite `screens/updates.py`** — Add Deferral card, Changelog card (MarkdownViewer), refine existing cards
+10. **Update `core/updates.py`** — Implement state machine (Focus > Snooze > Strategy > Per-layer), persist/restore previous strategy on Focus/Snooze toggle
+11. **Add `widgets/changelog.py`** — MarkdownViewer wrapper that fetches release notes
+
+### Phase 4: Toolkit Screen
+
+12. **Create `screens/toolkit.py`** — TabbedContent with Kits tab, two-column layout (ListView + detail pane)
+13. **Create `core/kits.py`** — Kit discovery from `/usr/share/ublue-os/homebrew/*.Brewfile`, install state detection, activate/deactivate via `brew bundle`
+14. **Wire Command Palette** — Add package search provider (brew search + flatpak search), source badges in results, install/remove actions
+15. **Remove old `screens/bundles.py` and `screens/packages.py`** — Replaced by toolkit.py
+
+### Phase 5: DevMode Screen
+
+16. **Create `screens/devmode.py`** — TabbedContent: Overview, Tools, Environments
+17. **Update `core/devmode.py`** — Add runtime health checks (Docker socket, Podman socket, Lima status), tool install state
+18. **Implement Lima guided setup** — Multi-step wizard using OperationModal: KVM preflight -> brew install lima -> start VM -> wire SSH -> verify. Handle `needs-relogin` state for KVM group
+19. **Implement Distrobox integration** — List pet containers, create/enter actions
+20. **Implement devcontainer detection** — Scan configurable paths for `.devcontainer/` directories
+
+### Phase 6: AI Screen
+
+21. **Create `screens/ai.py`** — TabbedContent: Stacks, Tools
+22. **Create `core/ai.py`** — Stack discovery (parse stack.env from system dirs), GPU detection (NVIDIA CDI / AMD KFD), preflight checks, deploy/stop lifecycle
+23. **Implement stack catalog widget** — ListView with VRAM badges, category filter, detail pane with full OCI refs and port links
+24. **Implement deploy flow** — Preflight modal -> confirmation modal -> OperationModal (copy quadlet -> daemon-reload -> pull -> start -> verify)
+25. **Implement stack lifecycle** — Stop, remove, view logs actions
+26. **Wire Lemonade/Docker Model** status into Tools tab
+
+### Phase 7: Polish
+
+27. **Help modal** — Full shortcut reference grouped by Global/Navigation/Screen-specific
+28. **Degraded mode** — Every screen handles missing tools gracefully (show install prompts, not crashes)
+29. **Headless CLI completion** — Ensure every TUI action has a `cli.py` equivalent with JSON output support
+30. **Snapshot tests** — SVG snapshot for each screen in default state
+31. **OSC 8 hyperlinks** — Port numbers in AI screen link to `http://localhost:<port>`
+32. **Toast notifications** — "Kit installed", "Stack deployed", "Focus mode expires in 1h"
+
+### Phase 8: Stack Catalog Expansion
+
+33. **Fix NVIDIA tensorflow-lab** — Pin to 25.02 or replace with Docker Hub TF image
+34. **Add small NIM** — nim-phi (phi-3.5-mini, 8 GB) for common RTX GPUs
+35. **Add ComfyUI stack** (AMD) — `ghcr.io/yanwenkun/comfyui-docker:rocm-torch2.6`, 8 GB
+36. **Add NIM VLM** — llama-3.2-11b-vision, 24 GB tier
+37. **Monitor NeMo->Megatron-Bridge transition** — Update at ngc-month 26.02
 
 ---
 
-## v1 Scope
+## Scope
 
-Ship with:
-1. ✅ Dashboard (system info + health)
-2. ✅ Brew management (layered Brewfile, search, add/remove, upgrade)
-3. ✅ Update settings (strategy, per-layer, focus mode, channel)
-4. ✅ Container status (read-only pod listing)
-5. ✅ Settings (devmode toggle, testing channel)
-6. ✅ GNOME accent color theming
-7. ✅ OSC 9;4 progress integration
-8. ✅ Headless CLI for all operations
+### v1 — Ship with:
 
-Defer to v2:
-- AI stack management screen
-- AI assistant integration (textual-ai)
-- Container lifecycle management (start/stop/pull)
-- Podman pod composition wizard
-- Health check automation
-- Update history/changelog viewer
+1. All 5 screens fully functional
+2. Unified progress system for all operations
+3. Command Palette with package search (brew + flatpak)
+4. GNOME accent color theming
+5. OSC 9;4 progress integration
+6. Headless CLI for all operations
+7. Help system (? modal + footer shortcuts)
+8. AI stack deploy/stop/logs for existing stacks
+9. Kit management (activate/deactivate all shipped kits)
+10. DevMode enable/disable with guided setup
+11. Lima WSL-equivalent setup wizard
+12. Focus mode + snooze
+13. Channel switch + rollback
+14. Changelog viewer (MarkdownViewer)
+
+### v2 — Deferred:
+
+- AI assistant integration (textual-ai, conversational interface)
+- Stack composition wizard (build custom stacks)
+- Sparkline widgets (CPU/GPU/memory mini-graphs)
+- Multi-GPU support (select which GPU for a stack)
+- Remote machine management (SSH to other Bluefin machines)
+- Auto-update of kits (scheduled brew bundle)
+- Export/import machine configuration
