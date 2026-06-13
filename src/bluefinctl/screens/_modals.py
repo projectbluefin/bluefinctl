@@ -201,23 +201,21 @@ class OperationLogModal(ModalScreen[int]):
 
 
 _HELP_TEXT = """\
-[bold]Global[/bold]
-──────────────────────────
-[cyan]q[/cyan]          Quit
-[cyan]?[/cyan]          This help
-[cyan]1[/cyan]          System
-[cyan]2[/cyan]          Bundles
-[cyan]3[/cyan]          Packages
-[cyan]4[/cyan]          Updates
-[cyan]5[/cyan]          Containers
-[cyan]Tab[/cyan]        Focus next
+[bold]Global[/bold]                   [bold]Navigation[/bold]
+──────────────────────────   ──────────────────────────
+[cyan]q[/cyan]          Quit              [cyan]Up/j[/cyan]       Move up
+[cyan]?[/cyan]          This help         [cyan]Down/k[/cyan]     Move down
+[cyan]Ctrl+P[/cyan]     Command Palette   [cyan]Enter[/cyan]      Select
+[cyan]1-5[/cyan]        Switch screen     [cyan]g/G[/cyan]        Top / Bottom
+[cyan]Tab[/cyan]        Focus next        [cyan]/[/cyan]          Search
+[cyan]Esc[/cyan]        Close modal
 
-[bold]Packages Screen[/bold]
+[bold]System Screen[/bold]
 ──────────────────────────
-[cyan]a[/cyan]          Add package
-[cyan]r[/cyan]          Remove package
-[cyan]u[/cyan]          Upgrade all
-[cyan]/[/cyan]          Focus search
+[cyan]u[/cyan]          Update All
+[cyan]d[/cyan]          Toggle devmode
+[cyan]c[/cyan]          Launch podman-tui
+[cyan]r[/cyan]          System Report
 
 [bold]Updates Screen[/bold]
 ──────────────────────────
@@ -227,15 +225,24 @@ _HELP_TEXT = """\
 [cyan]s[/cyan]          Switch to stable channel
 [cyan]t[/cyan]          Switch to testing channel
 
-[bold]Containers Screen[/bold]
+[bold]Toolkit Screen[/bold]
 ──────────────────────────
+[cyan]Enter[/cyan]      Activate kit
 [cyan]r[/cyan]          Refresh
-[cyan]l[/cyan]          View logs
+[cyan]Ctrl+P[/cyan]     Install package
 
-[bold]System Screen[/bold]
+[bold]DevMode Screen[/bold]
 ──────────────────────────
-[cyan]d[/cyan]          Toggle devmode
-[cyan]r[/cyan]          Run ujust report
+[cyan]Enter[/cyan]      Install / setup
+[cyan]a[/cyan]          Install all missing
+[cyan]c[/cyan]          Launch podman-tui
+
+[bold]AI Screen[/bold]
+──────────────────────────
+[cyan]Enter[/cyan]      Deploy stack
+[cyan]s[/cyan]          Stop stack
+[cyan]l[/cyan]          View logs
+[cyan]f[/cyan]          Filter category
 """
 
 
