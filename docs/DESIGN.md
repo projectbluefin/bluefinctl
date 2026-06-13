@@ -192,55 +192,29 @@ The landing screen. At-a-glance machine identity and health. Cards layout, scrol
 
 ### 2. Updates
 
-Update policy management. Cards layout, scrollable. Dangerous operations (channel switch, rollback) gated behind confirmation modals. On non-bootc systems, bootc/uupd-specific controls degrade in-place.
+Update policy management. Scrollable card layout. Dangerous operations (channel switch, rollback) require a confirmation modal.
 
-**Cards:**
+**Implemented cards:**
 
-| Card | Content |
-|------|---------|
-| Strategy | RadioSet: Automatic / Notify / Manual / Scheduled |
-| Focus Mode | Switch + duration input. Persistent status bar indicator when active |
-| Per-Layer Control | Three switches: OS Image (bootc), Flatpaks, Homebrew |
-| Deferral | When updates pending: `[1h] [Tonight] [Tomorrow] [Skip version]` |
-| Channel | Current: `ghcr.io/projectbluefin/bluefin:43-stable`. Actions: `[s]table [t]esting [p]in` |
-| Rollback | Previous deployment + calendar date picker (see below) |
-| Changelog | MarkdownViewer showing latest release notes from upstream |
+| Card | Widgets | What it does |
+|------|---------|--------------|
+| Update Strategy | RadioSet: Automatic / Notify / Manual | Sets uupd timer policy immediately |
+| Focus Mode | Switch | Masks/unmasks uupd.timer |
+| Per-Layer Control | Three Switches: OS Image, Flatpaks, Homebrew | Writes `/etc/uupd/config.json` via pkexec |
+| Channel | Label + **Stable** / **Testing** / **Update Now** buttons | `bootc switch` after confirmation modal |
+| Rollback | Label (previous image) + **Rollback to previous** button | `bootc rollback` after confirmation modal |
 
-**Rollback Calendar Card:**
+**Not yet implemented:**
+- Deferral snooze (1h / Tonight / Tomorrow)
+- Changelog / release notes viewer
+- Scheduled strategy time-picker
+- Date-based rollback calendar
 
-Inline calendar widget showing the last 90 days. Each date cell indicates image availability:
-
-```
- Rollback — pin to a previous image
- Current: ghcr.io/projectbluefin/bluefin:43-stable (deployed 2h ago)
- Previous: ghcr.io/projectbluefin/bluefin:43-20260611 (bootc rollback)
-
- June 2026
- Mo Tu We Th Fr Sa Su
-                    1
-  2  3  4  5  6  7  8
-  9 10 11 12 [13] .  .     [today]  available  .  no build
- . = not yet verified
-```
-
-**How it works (cheap registry queries):**
-- Tag format is predictable: `<version>-<YYYYMMDD>` (e.g., `43-20260610`)
-- On mount: verify last 7 days asynchronously (7 quick `skopeo inspect` calls in background Worker)
-- On scroll to older dates: verify on demand, cache results
-- Cache persisted to `~/.local/state/bluefinctl/available-images.json` (TTL: 24h)
-- Selecting a date: one verification call, then confirmation modal -> `bootc switch --target <ref>`
-- Total cost: ~7 lightweight manifest HEAD requests on first view, cached thereafter
-
-**Interactions:**
-- Arrow keys navigate calendar dates
-- Enter on a date — verify + confirmation modal: "Switch to image from June 10? Reboot required."
-- `[R]` — quick rollback to previous deployment (no calendar, just `bootc rollback`)
-- Strategy change — immediate effect, toast notification confirms
-- Focus toggle — modal asks for duration (blank = indefinite)
-- Channel switch — confirmation modal showing target ref and "reboot required"
-- `u` — update now (unified progress modal)
-
-**State machine enforcement:** Turning off Focus restores previous strategy. Snooze auto-unmasks at scheduled time. UI reflects actual systemd timer state on load.
+**Keybindings:**
+- `s` — switch to stable (`bootc switch`)
+- `t` — switch to testing (`bootc switch`)
+- `u` — update now (`systemctl start uupd.service`)
+- `R` — rollback to previous deployment (`bootc rollback`)
 
 ---
 
