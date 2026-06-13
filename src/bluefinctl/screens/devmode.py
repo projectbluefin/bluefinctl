@@ -9,12 +9,17 @@ TabbedContent with 3 tabs:
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bluefinctl.core.devmode import DevTool
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import ScrollableContainer
+from textual.css.query import NoMatches
 from textual.screen import Screen
-from textual.widgets import Label, Static, TabbedContent, TabPane
+from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
 from bluefinctl.screens._sidebar import Sidebar
 
@@ -42,7 +47,7 @@ class OverviewTab(Static):
             )
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
         from bluefinctl.core.devmode import _check_devmode_active
@@ -59,7 +64,7 @@ class OverviewTab(Static):
         else:
             self.query_one("#devmode-status", Label).update(
                 "  Developer Mode: INACTIVE\n"
-                "  Press Enter to enable developer mode",
+                "  Use DevMode actions to enable developer mode",
             )
 
         # Check runtime health
@@ -115,56 +120,60 @@ class OverviewTab(Static):
 
 
 class ToolsTab(Static):
-    """DevMode Tools — list of dev tools with install status."""
+    """DevMode Tools — interactive dev tool list with install status."""
 
     DEFAULT_CSS = """
-    ToolsTab { height: auto; padding: 1 0; }
+    ToolsTab { height: 1fr; padding: 1 0; }
+    #tools-list { height: 1fr; }
     """
 
-    # Tool categories with (name, description) tuples
-    DEV_TOOLS = [
-        ("-- Dev Tools --", ""),
-        ("podman-compose", "Container orchestration"),
-        ("dive", "Container layer explorer"),
-        ("kind", "Local Kubernetes"),
-        ("devcontainer", "Devcontainer CLI"),
-    ]
-
-    PERF_TOOLS = [
-        ("-- Performance --", ""),
-        ("sysprof", "System profiler"),
-        ("bcc", "BPF compiler collection"),
-        ("bpftrace", "BPF tracing"),
-    ]
-
-    VIRT_TOOLS = [
-        ("-- Virtualization --", ""),
-        ("qemu-system-x86_64", "QEMU/KVM"),
-        ("incus", "Container/VM manager"),
-    ]
+    def __init__(self) -> None:
+        super().__init__()
+        self._tools: list[DevTool] = []
 
     def compose(self) -> ComposeResult:
         yield Label("Developer Tools", classes="card--title")
-        yield Label("  Loading...", id="tools-list")
+        yield ListView(id="tools-list")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
-        import shutil
+        from bluefinctl.core.devmode import get_dev_tools_status
 
-        all_tools = self.DEV_TOOLS + self.PERF_TOOLS + self.VIRT_TOOLS
-        lines: list[str] = []
+        loop = asyncio.get_running_loop()
+        self._tools = await loop.run_in_executor(None, get_dev_tools_status)
+        try:
+            tool_list = self.query_one("#tools-list", ListView)
+        except NoMatches:
+            return
+        tool_list.clear()
 
-        for name, desc in all_tools:
-            if name.startswith("--"):
-                lines.append(f"\n  {name}")
-                continue
-            installed = shutil.which(name) is not None
-            status = "[ok]" if installed else "[--]"
-            lines.append(f"  {status} {name:<20} {desc}")
+        current_category = ""
+        for tool in self._tools:
+            if tool.category != current_category:
+                current_category = tool.category
+                tool_list.append(ListItem(Label(f"  -- {current_category} --"), disabled=True))
+            status = "[ok]" if tool.installed else "[--]"
+            label = f"  {status} {tool.name:<22} {tool.description}"
+            tool_list.append(ListItem(Label(label), name=tool.slug))
 
-        self.query_one("#tools-list", Label).update("\n".join(lines))
+    def selected_tool(self) -> DevTool | None:
+        """Return the selected DevTool, skipping disabled category rows."""
+        try:
+            tool_list = self.query_one("#tools-list", ListView)
+        except NoMatches:
+            return None
+        if tool_list.highlighted_child is None:
+            return None
+        slug = tool_list.highlighted_child.name
+        if slug is None:
+            return None
+        return next((tool for tool in self._tools if tool.slug == slug), None)
+
+    def refresh_tools(self) -> None:
+        """Refresh tool status."""
+        self.run_worker(self._load(), exclusive=True)
 
 
 class EnvironmentsTab(Static):
@@ -188,7 +197,7 @@ class EnvironmentsTab(Static):
             yield Label("  Checking...", id="env-lima")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
         # Podman Desktop
@@ -261,19 +270,19 @@ class EnvironmentsTab(Static):
                 self.query_one("#env-lima", Label).update(
                     "  WSL-equivalent Ubuntu VM\n"
                     + "\n".join(display_lines)
-                    + "\n  Action: [Enter] to manage",
+                    + "\n  Action: manage from Lima tooling",
                 )
             else:
                 self.query_one("#env-lima", Label).update(
                     "  WSL-equivalent Ubuntu VM — persistent, $HOME mounted\n"
                     "  [--] Not set up\n"
-                    "  Action: [Enter] to run guided setup",
+                    "  Action: guided setup coming soon",
                 )
         except FileNotFoundError:
             self.query_one("#env-lima", Label).update(
                 "  WSL-equivalent Ubuntu VM\n"
                 "  [--] Lima not installed\n"
-                "  Action: [Enter] to install and set up",
+                "  Install via: brew install lima",
             )
 
 
@@ -281,6 +290,7 @@ class DevModeScreen(Screen[None]):
     """Developer mode screen — tools, environments, Lima."""
 
     BINDINGS = [
+        Binding("enter", "install_selected_tool", "Install"),
         Binding("c", "launch_podman_tui", "podman-tui"),
         Binding("a", "install_all", "Install All"),
     ]
@@ -295,6 +305,15 @@ class DevModeScreen(Screen[None]):
         padding: 1 2;
     }
     """
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
+        """Disable Install footer hint when not on the Tools tab."""
+        if action == "install_selected_tool":
+            try:
+                return self.query_one(TabbedContent).active == "tab-tools"
+            except NoMatches:  # widget not yet mounted
+                return None
+        return None
 
     def compose(self) -> ComposeResult:
         yield Sidebar(active="devmode")
@@ -317,8 +336,50 @@ class DevModeScreen(Screen[None]):
         else:
             self.notify("podman-tui not installed", severity="warning")
 
+    async def action_install_selected_tool(self) -> None:
+        """Install the selected missing developer tool from the Tools tab."""
+        from bluefinctl.core.devmode import install_dev_tool_steps
+        from bluefinctl.screens._modals import ConfirmModal
+        from bluefinctl.widgets.operation_modal import OperationModal
+
+        # Only act when the Tools tab is active to avoid accidental installs
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab-tools":
+            return
+
+        tools_tab = self.query_one(ToolsTab)
+        tool = tools_tab.selected_tool()
+        if tool is None:
+            self.notify("Select a developer tool first", severity="warning", title="DevMode")
+            return
+        if tool.installed:
+            self.notify(f"{tool.name} is already installed", title="DevMode")
+            return
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal(
+                f"Install {tool.name}?",
+                f"Install {tool.name} via Homebrew?",
+            ),
+        )
+        if not confirmed:
+            return
+
+        rc = await self.app.push_screen_wait(
+            OperationModal(
+                f"Installing {tool.name}",
+                steps=install_dev_tool_steps(tool),
+            ),
+        )
+        if rc == 0:
+            self.notify(f"{tool.name} installed", title="DevMode")
+            tools_tab.refresh_tools()
+        else:
+            self.notify(f"Failed to install {tool.name}", severity="error", title="DevMode")
+
     async def action_install_all(self) -> None:
         """Install all missing dev tools."""
+        from bluefinctl.core.devmode import install_missing_dev_tools_steps
         from bluefinctl.screens._modals import ConfirmModal
         from bluefinctl.widgets.operation_modal import OperationModal
 
@@ -329,17 +390,14 @@ class DevModeScreen(Screen[None]):
             ),
         )
         if confirmed:
-            from bluefinctl.core.progress import BrewInstallParser
-
             rc = await self.app.push_screen_wait(
                 OperationModal(
                     "Installing Dev Tools",
-                    command=["brew", "install"] + [
-                        "podman-compose", "dive", "kind",
-                        "devcontainer", "sysprof", "bcc", "bpftrace",
-                    ],
-                    parser=BrewInstallParser(total_packages=7),
+                    steps=install_missing_dev_tools_steps(),
                 ),
             )
             if rc == 0:
                 self.notify("All dev tools installed", title="DevMode")
+                self.query_one(ToolsTab).refresh_tools()
+            else:
+                self.notify("Failed to install dev tools", severity="error", title="DevMode")

@@ -151,20 +151,22 @@ Number keys 1-5 switch screens instantly. Sidebar items are clickable. Active sc
 
 ### Platform Detection
 
-bluefinctl ships via Homebrew and can run on any Linux (or macOS/WSL via `bluefin-cli`). On non-bootc/non-Universal Blue systems:
+bluefinctl ships via Homebrew and can run on any Linux (or macOS/WSL via `bluefin-cli`). Navigation is always stable: System, Updates, Toolkit, DevMode, and AI are installed and shown with keys 1-5 on every platform.
 
-- **System screen is hidden** — no bootc status, no image identity, no rollback
-- **Updates screen is hidden** — no uupd daemon to configure
-- Sidebar shows only: Toolkit, DevMode, AI (3 screens, keys 1-3)
-- Default home screen becomes Toolkit
+On non-bootc/non-Universal Blue systems, platform-specific panels remain visible but degrade in-place:
 
-Detection: check for `/run/ostree-booted` or `bootc status` exit code. If neither succeeds, the system is not an immutable image and System/Updates are not applicable.
+- **System screen** explains that bootc identity/status/rollback are unavailable.
+- **Updates screen** explains that uupd/bootc update policy controls are unavailable.
+- Toolkit, DevMode, and AI remain fully reachable at the same keys.
+- Default home screen remains System unless a start screen is explicitly provided.
+
+Detection still checks for `/run/ostree-booted` or `bootc status` exit code. The result controls panel content and warnings, not whether screens exist.
 
 ---
 
 ### 1. System (home)
 
-The landing screen. At-a-glance machine identity and health. Cards layout, scrollable. **Only shown on bootc/Universal Blue systems.**
+The landing screen. At-a-glance machine identity and health. Cards layout, scrollable. On non-bootc systems, it degrades in-place with unavailable bootc controls disabled.
 
 **Cards:**
 
@@ -190,7 +192,7 @@ The landing screen. At-a-glance machine identity and health. Cards layout, scrol
 
 ### 2. Updates
 
-Update policy management. Cards layout, scrollable. Dangerous operations (channel switch, rollback) gated behind confirmation modals. **Only shown on bootc/Universal Blue systems.**
+Update policy management. Cards layout, scrollable. Dangerous operations (channel switch, rollback) gated behind confirmation modals. On non-bootc systems, bootc/uupd-specific controls degrade in-place.
 
 **Cards:**
 

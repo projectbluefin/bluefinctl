@@ -191,25 +191,29 @@ class ToolkitScreen(Screen[None]):
 
         if bundle.state in (BundleState.ACTIVE, BundleState.PARTIAL):
             # Deactivate
+            from bluefinctl.core.bundles import deactivate_bundle_steps, preview_bundle_deactivation
+
+            preview = await preview_bundle_deactivation(bundle.meta.slug)
+            removable = ", ".join(preview.removable_packages[:12]) or "none"
+            if len(preview.removable_packages) > 12:
+                removable += f", ... and {len(preview.removable_packages) - 12} more"
+            shared = ", ".join(preview.shared_packages[:8]) or "none"
+            if len(preview.shared_packages) > 8:
+                shared += f", ... and {len(preview.shared_packages) - 8} more"
+
             confirmed = await self.app.push_screen_wait(
                 ConfirmModal(
                     f"Deactivate {bundle.name}?",
-                    f"Remove packages unique to this kit "
-                    f"({bundle.total_count} packages total).",
+                    "Remove only packages unique to this kit.\n\n"
+                    f"Will remove ({len(preview.removable_packages)}): {removable}\n\n"
+                    f"Kept because shared ({len(preview.shared_packages)}): {shared}",
                 ),
             )
             if confirmed:
-                from bluefinctl.core.progress import BrewInstallParser
-
                 rc = await self.app.push_screen_wait(
                     OperationModal(
                         f"Deactivating {bundle.name}",
-                        command=[
-                            "brew", "bundle", "cleanup",
-                            f"--file=/usr/share/ublue-os/homebrew/{bundle.meta.slug}.Brewfile",
-                            "--force",
-                        ],
-                        parser=BrewInstallParser(),
+                        steps=deactivate_bundle_steps(bundle.meta.slug),
                     ),
                 )
                 if rc == 0:
@@ -224,16 +228,12 @@ class ToolkitScreen(Screen[None]):
                 ),
             )
             if confirmed:
-                from bluefinctl.core.progress import BrewInstallParser
+                from bluefinctl.core.bundles import activate_bundle_steps
 
                 rc = await self.app.push_screen_wait(
                     OperationModal(
                         f"Activating {bundle.name}",
-                        command=[
-                            "brew", "bundle", "install",
-                            f"--file=/usr/share/ublue-os/homebrew/{bundle.meta.slug}.Brewfile",
-                        ],
-                        parser=BrewInstallParser(total_packages=bundle.total_count),
+                        steps=activate_bundle_steps(bundle.meta.slug),
                     ),
                 )
                 if rc == 0:

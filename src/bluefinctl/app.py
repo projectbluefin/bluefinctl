@@ -1,8 +1,8 @@
 """Main Textual application for bluefinctl.
 
 Five-screen navigation:
-  System   — identity, hardware, health, quick actions (bootc systems only)
-  Updates  — update strategy, focus mode, channel, rollback (bootc systems only)
+  System   — identity, hardware, health, quick actions
+  Updates  — update strategy, focus mode, channel, rollback
   Toolkit  — kit management, package install via Command Palette
   DevMode  — developer tools, environments, Lima
   AI       — GPU-accelerated AI stack management
@@ -61,67 +61,49 @@ class BluefinCtl(App[None]):
         self._start_screen = start_screen
         self._accent_color = get_accent_color()
         self._is_bootc = _is_bootc_system()
-        # Screen name -> number key mapping, set in on_mount
-        self._screen_keys: dict[str, str] = {}
+        self._screen_keys: dict[str, str] = {
+            "screen1": "system",
+            "screen2": "updates",
+            "screen3": "toolkit",
+            "screen4": "devmode",
+            "screen5": "ai",
+        }
 
     def on_mount(self) -> None:
         from textual.theme import Theme
 
         from bluefinctl.screens.ai import AIScreen
         from bluefinctl.screens.devmode import DevModeScreen
+        from bluefinctl.screens.system import SystemScreen
         from bluefinctl.screens.toolkit import ToolkitScreen
+        from bluefinctl.screens.updates import UpdatesScreen
         from bluefinctl.theme.accent import get_accent_hex
 
         # Register dynamic theme with GNOME accent color
         accent = get_accent_hex()
         self.register_theme(Theme(
-            name='bluefin',
+            name="bluefin",
             primary=accent,
             accent=accent,
-            background='#1a1a2e',
-            surface='#16213e',
-            panel='#1f3460',
-            error='#f44336',
-            warning='#ff9800',
-            success='#4caf50',
+            background="#1a1a2e",
+            surface="#16213e",
+            panel="#1f3460",
+            error="#f44336",
+            warning="#ff9800",
+            success="#4caf50",
             dark=True,
         ))
-        self.theme = 'bluefin'
+        self.theme = "bluefin"
 
-        # Build screen list based on platform detection
-        key_num = 1
-        if self._is_bootc:
-            from bluefinctl.screens.system import SystemScreen
-            from bluefinctl.screens.updates import UpdatesScreen
+        # Always expose all five panels. Platform detection is retained for
+        # degraded screen content, not for hiding navigation targets.
+        self.install_screen(SystemScreen(), name="system")
+        self.install_screen(UpdatesScreen(), name="updates")
+        self.install_screen(ToolkitScreen(), name="toolkit")
+        self.install_screen(DevModeScreen(), name="devmode")
+        self.install_screen(AIScreen(), name="ai")
 
-            self.install_screen(SystemScreen(), name='system')
-            self._screen_keys[f'screen{key_num}'] = 'system'
-            key_num += 1
-
-            self.install_screen(UpdatesScreen(), name='updates')
-            self._screen_keys[f'screen{key_num}'] = 'updates'
-            key_num += 1
-
-        self.install_screen(ToolkitScreen(), name='toolkit')
-        self._screen_keys[f'screen{key_num}'] = 'toolkit'
-        key_num += 1
-
-        self.install_screen(DevModeScreen(), name='devmode')
-        self._screen_keys[f'screen{key_num}'] = 'devmode'
-        key_num += 1
-
-        self.install_screen(AIScreen(), name='ai')
-        self._screen_keys[f'screen{key_num}'] = 'ai'
-
-        # Determine start screen
-        if self._start_screen:
-            start = self._start_screen
-        elif self._is_bootc:
-            start = 'system'
-        else:
-            start = 'toolkit'
-
-        self.push_screen(start)
+        self.push_screen(self._start_screen or "system")
 
     def compose(self) -> ComposeResult:
         """App chrome — header with system identity."""
@@ -142,7 +124,6 @@ class BluefinCtl(App[None]):
 
         Accepts both 'screenN' (key binding) and direct names like 'system'.
         """
-        # Resolve 'screenN' keys to actual screen names
         if screen in self._screen_keys:
             screen = self._screen_keys[screen]
         self.switch_screen(screen)

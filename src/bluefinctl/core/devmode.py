@@ -1,12 +1,17 @@
-"""Core business logic — developer mode toggle."""
+"""Core business logic — developer mode and developer tool workflows."""
 
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 import subprocess
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass, replace
 
 from rich.console import Console
+
+from bluefinctl.core.progress import BrewInstallParser, ProgressUpdate
 
 
 @dataclass
@@ -14,18 +19,104 @@ class DevmodeState:
     """Current devmode state."""
 
     active: bool = False
-    groups: list[str] | None = None  # Groups added by devmode
+    groups: list[str] | None = None
 
 
-# Groups that devmode adds the user to
+@dataclass(frozen=True)
+class DevTool:
+    """A developer tool with install metadata and runtime status."""
+
+    slug: str
+    command: str
+    package: str
+    name: str
+    description: str
+    category: str
+    installed: bool = False
+
+
 DEVMODE_GROUPS = ["docker", "mock", "lxd"]
 
-# Packages enabled by devmode (installed via brew)
 DEVMODE_PACKAGES = [
     "podman-compose",
     "dive",
     "kind",
 ]
+
+DEV_TOOL_REGISTRY: tuple[DevTool, ...] = (
+    DevTool(
+        slug="podman-compose",
+        command="podman-compose",
+        package="podman-compose",
+        name="podman-compose",
+        description="Compose-compatible orchestration for Podman",
+        category="Dev Tools",
+    ),
+    DevTool(
+        slug="dive",
+        command="dive",
+        package="dive",
+        name="dive",
+        description="Container layer explorer",
+        category="Dev Tools",
+    ),
+    DevTool(
+        slug="kind",
+        command="kind",
+        package="kind",
+        name="kind",
+        description="Local Kubernetes clusters",
+        category="Dev Tools",
+    ),
+    DevTool(
+        slug="devcontainer",
+        command="devcontainer",
+        package="devcontainer",
+        name="devcontainer",
+        description="Dev Container CLI",
+        category="Dev Tools",
+    ),
+    DevTool(
+        slug="sysprof",
+        command="sysprof",
+        package="sysprof",
+        name="Sysprof",
+        description="System profiler",
+        category="Performance",
+    ),
+    DevTool(
+        slug="bcc",
+        command="bcc",
+        package="bcc",
+        name="BCC",
+        description="BPF compiler collection",
+        category="Performance",
+    ),
+    DevTool(
+        slug="bpftrace",
+        command="bpftrace",
+        package="bpftrace",
+        name="bpftrace",
+        description="High-level BPF tracing",
+        category="Performance",
+    ),
+    DevTool(
+        slug="qemu-system-x86_64",
+        command="qemu-system-x86_64",
+        package="qemu",
+        name="QEMU/KVM",
+        description="Machine emulator and virtualizer",
+        category="Virtualization",
+    ),
+    DevTool(
+        slug="incus",
+        command="incus",
+        package="incus",
+        name="Incus",
+        description="Container and VM manager",
+        category="Virtualization",
+    ),
+)
 
 
 def _check_devmode_active() -> DevmodeState:
@@ -50,13 +141,73 @@ def _check_devmode_active() -> DevmodeState:
     return DevmodeState(active=False)
 
 
+def get_dev_tools_status() -> list[DevTool]:
+    """Return canonical developer tools with current install status."""
+    return [
+        replace(tool, installed=shutil.which(tool.command) is not None)
+        for tool in DEV_TOOL_REGISTRY
+    ]
+
+
+def _find_dev_tool(tool_or_slug: DevTool | str) -> DevTool:
+    if isinstance(tool_or_slug, DevTool):
+        return tool_or_slug
+    for tool in get_dev_tools_status():
+        if tool.slug == tool_or_slug:
+            return tool
+    raise ValueError(f"Unknown developer tool: {tool_or_slug}")
+
+
+async def _brew_install_steps(
+    packages: list[str],
+    title: str,
+) -> AsyncGenerator[ProgressUpdate, None]:
+    if not packages:
+        yield ProgressUpdate(percent=100, message="Nothing to install")
+        return
+
+    parser = BrewInstallParser(total_packages=len(packages))
+    yield ProgressUpdate(percent=0, step=1, total_steps=len(packages), message=title)
+    proc = await asyncio.create_subprocess_exec(
+        "brew", "install", *packages,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw_line in proc.stdout:
+            line = raw_line.decode(errors="replace").rstrip()
+            update = parser.parse_line(line)
+            yield update or ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"brew install failed ({rc})")
+    yield ProgressUpdate(percent=100, message="Developer tools installed")
+
+
+async def install_dev_tool_steps(
+    tool_or_slug: DevTool | str,
+) -> AsyncGenerator[ProgressUpdate, None]:
+    """Install one developer tool and stream progress for OperationModal."""
+    tool = _find_dev_tool(tool_or_slug)
+    if tool.installed:
+        yield ProgressUpdate(percent=100, message=f"{tool.name} is already installed")
+        return
+    async for update in _brew_install_steps([tool.package], f"Installing {tool.name}"):
+        yield update
+
+
+async def install_missing_dev_tools_steps() -> AsyncGenerator[ProgressUpdate, None]:
+    """Install every missing canonical developer tool."""
+    missing = [tool.package for tool in get_dev_tools_status() if not tool.installed]
+    async for update in _brew_install_steps(missing, "Installing missing developer tools"):
+        yield update
+
+
 async def enable_devmode() -> bool:
     """Enable developer mode — add groups and install dev tools."""
     console = Console()
     console.print("[bold]Enabling developer mode...[/bold]")
 
-    # Add user to devmode groups
-    import os
     username = os.environ.get("USER", "")
 
     for group in DEVMODE_GROUPS:
@@ -65,14 +216,12 @@ async def enable_devmode() -> bool:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
+        await proc.communicate()
         if proc.returncode == 0:
             console.print(f"  [green]ok[/green] Added to group: {group}")
         else:
-            # Group may not exist on this image — that's OK
             console.print(f"  [dim]  Skipped group: {group}[/dim]")
 
-    # Install dev tools
     for pkg in DEVMODE_PACKAGES:
         proc = await asyncio.create_subprocess_exec(
             "brew", "install", pkg,
@@ -95,7 +244,6 @@ async def disable_devmode() -> bool:
     console = Console()
     console.print("[bold]Disabling developer mode...[/bold]")
 
-    import os
     username = os.environ.get("USER", "")
 
     for group in DEVMODE_GROUPS:

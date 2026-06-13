@@ -7,11 +7,18 @@ TabbedContent with 2 tabs:
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import TYPE_CHECKING, Any
+
+from bluefinctl.core.ai import AI_TOOLS_KIT_SLUG, BUNDLE_AI_TOOLS_SOURCE
+
+if TYPE_CHECKING:
+    from bluefinctl.core.ai import AITool
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
@@ -30,11 +37,9 @@ class GpuCard(Static):
         yield Label("  Detecting...", id="gpu-info")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
-        import asyncio
-
         from bluefinctl.core.ai import detect_gpu
 
         loop = asyncio.get_running_loop()
@@ -81,7 +86,11 @@ class StacksTab(Static):
                 yield Label("", id="stack-detail-body")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
+
+    def refresh_stacks(self) -> None:
+        """Reload the stack list from system directories."""
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
         from bluefinctl.core.ai import StackStatus, get_stacks
@@ -156,61 +165,79 @@ class StacksTab(Static):
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         """Update detail pane when selection changes."""
         if event.item is not None:
-            index = event.item.parent.children.index(event.item)  # type: ignore[union-attr]
-            self._show_stack_detail(index)
+            index = event.list_view.index
+            if index is not None:
+                self._show_stack_detail(index)
 
 
 class ToolsTab(Static):
-    """AI Tools tab — CLI tools with install status."""
+    """AI Tools tab — interactive tool inventory."""
 
     DEFAULT_CSS = """
-    ToolsTab { height: auto; padding: 1 0; }
+    ToolsTab { height: 1fr; padding: 1 0; }
+    #ai-tools-list { height: 1fr; }
     """
 
-    AI_TOOLS = [
-        ("-- Coding Agents --", ""),
-        ("goose", "Block Protocol AI agent"),
-        ("claude", "Claude coding agent"),
-        ("copilot", "GitHub Copilot terminal"),
-        ("-- Local AI --", ""),
-        ("lemonade", "AMD-native LLM server"),
-        ("whisper-cpp", "Speech-to-text"),
-        ("llm", "CLI for language models"),
-        ("-- Model Tools --", ""),
-        ("docker", "Docker model management"),
-    ]
+    def __init__(self) -> None:
+        super().__init__()
+        self._tools: list[AITool] = []
 
     def compose(self) -> ComposeResult:
-        with Static(classes="card"):
-            yield Label("AI & ML Tools", classes="card--title")
-            yield Label("  Loading...", id="ai-tools-list")
+        yield Label("AI & ML Tools", classes="card--title")
+        yield ListView(id="ai-tools-list")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
-        import shutil
+        from bluefinctl.core.ai import get_ai_tools_status
 
-        lines: list[str] = []
-        for name, desc in self.AI_TOOLS:
-            if name.startswith("--"):
-                lines.append(f"\n  {name}")
-                continue
-            installed = shutil.which(name) is not None
-            status = "[ok]" if installed else "[--]"
-            lines.append(f"  {status} {name:<20} {desc}")
+        loop = asyncio.get_running_loop()
+        self._tools = await loop.run_in_executor(None, get_ai_tools_status)
+        try:
+            tools_list = self.query_one("#ai-tools-list", ListView)
+        except NoMatches:
+            return
+        tools_list.clear()
 
-        self.query_one("#ai-tools-list", Label).update("\n".join(lines))
+        current_category = ""
+        for tool in self._tools:
+            if tool.category != current_category:
+                current_category = tool.category
+                tools_list.append(ListItem(Label(f"  -- {current_category} --"), disabled=True))
+            status = "[ok]" if tool.installed else "[--]"
+            description = tool.description
+            is_bundled = tool.source == BUNDLE_AI_TOOLS_SOURCE and tool.slug != AI_TOOLS_KIT_SLUG
+            if is_bundled and not tool.installed:
+                description = f"{description} (installs AI Tools kit)"
+            label = f"  {status} {tool.name:<20} {description}"
+            tools_list.append(ListItem(Label(label), name=tool.slug))
+
+    def selected_tool(self) -> AITool | None:
+        """Return the selected AI tool, skipping disabled category rows."""
+        try:
+            tools_list = self.query_one("#ai-tools-list", ListView)
+        except NoMatches:
+            return None
+        if tools_list.highlighted_child is None:
+            return None
+        slug = tools_list.highlighted_child.name
+        if slug is None:
+            return None
+        return next((tool for tool in self._tools if tool.slug == slug), None)
+
+    def refresh_tools(self) -> None:
+        """Refresh AI tool status."""
+        self.run_worker(self._load(), exclusive=True)
 
 
 class AIScreen(Screen[None]):
     """AI workstation management — stack catalog and tools."""
 
     BINDINGS = [
-        Binding("enter", "deploy_stack", "Deploy"),
+        Binding("enter", "deploy_stack", "Select"),
         Binding("s", "stop_stack", "Stop"),
         Binding("l", "stack_logs", "Logs"),
-        Binding("f", "filter_category", "Filter"),
     ]
 
     DEFAULT_CSS = """
@@ -224,6 +251,15 @@ class AIScreen(Screen[None]):
     }
     """
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
+        """Hide stop/log footer hints when not on the Stacks tab."""
+        if action in ("stop_stack", "stack_logs"):
+            try:
+                return self.query_one(TabbedContent).active == "tab-stacks"
+            except NoMatches:  # widget not yet mounted
+                return None
+        return None
+
     def compose(self) -> ComposeResult:
         yield Sidebar(active="ai")
         with ScrollableContainer(id="ai-content"), TabbedContent():
@@ -233,8 +269,13 @@ class AIScreen(Screen[None]):
                 yield ToolsTab()
 
     async def action_deploy_stack(self) -> None:
-        """Deploy the selected stack."""
-        from bluefinctl.core.ai import StackStatus
+        """Deploy the selected stack or install selected AI tool on the Tools tab."""
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active == "tab-tools":
+            await self._install_selected_ai_tool()
+            return
+
+        from bluefinctl.core.ai import StackStatus, deploy_stack_steps
         from bluefinctl.screens._modals import ConfirmModal
         from bluefinctl.widgets.operation_modal import OperationModal
 
@@ -262,25 +303,69 @@ class AIScreen(Screen[None]):
             ),
         )
         if confirmed:
-            from bluefinctl.core.progress import PodmanPullParser
-
             rc = await self.app.push_screen_wait(
                 OperationModal(
                     f"Deploying {stack.name}",
-                    command=[
-                        "systemctl", "--user", "start", stack.slug,
-                    ],
-                    parser=PodmanPullParser(),
+                    steps=deploy_stack_steps(stack),
                 ),
             )
             if rc == 0:
                 self.notify(f"{stack.name} deployed", title="AI")
+                stacks_tab.refresh_stacks()
             else:
                 self.notify(f"Failed to deploy {stack.name}", severity="error", title="AI")
 
+    async def _install_selected_ai_tool(self) -> None:
+        """Install/update the AI tools kit for the selected Tools tab row."""
+        from bluefinctl.core.ai import install_ai_tools_kit_steps
+        from bluefinctl.screens._modals import ConfirmModal
+        from bluefinctl.widgets.operation_modal import OperationModal
+
+        tools_tab = self.query_one(ToolsTab)
+        tool = tools_tab.selected_tool()
+        if tool is None:
+            self.notify("Select an AI tool first", severity="warning", title="AI")
+            return
+        if tool.installed:
+            self.notify(f"{tool.name} is already installed", title="AI")
+            return
+        if tool.source != BUNDLE_AI_TOOLS_SOURCE:
+            self.notify(
+                f"{tool.name} is managed outside bluefinctl",
+                severity="warning",
+                title="AI",
+            )
+            return
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal(
+                f"Install {tool.name}?",
+                f"Installing {tool.name} uses the curated AI Tools kit bundle via Homebrew.",
+            ),
+        )
+        if not confirmed:
+            return
+
+        rc = await self.app.push_screen_wait(
+            OperationModal(
+                "Installing AI Tools kit",
+                steps=install_ai_tools_kit_steps(),
+            ),
+        )
+        if rc == 0:
+            self.notify("AI Tools kit installed", title="AI")
+            tools_tab.refresh_tools()
+        else:
+            self.notify("Failed to install AI Tools kit", severity="error", title="AI")
+
     async def action_stop_stack(self) -> None:
         """Stop the selected running stack."""
-        from bluefinctl.core.ai import StackStatus, stop_stack
+        from bluefinctl.core.ai import StackStatus, stop_stack_steps
+        from bluefinctl.widgets.operation_modal import OperationModal
+
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab-stacks":
+            return
 
         stacks_tab = self.query_one(StacksTab)
         stack_list = stacks_tab.query_one("#stack-list", ListView)
@@ -292,16 +377,25 @@ class AIScreen(Screen[None]):
             self.notify(f"{stack.name} is not running", severity="warning", title="AI")
             return
 
-        success = await stop_stack(stack)
-        if success:
+        rc = await self.app.push_screen_wait(
+            OperationModal(
+                f"Stopping {stack.name}",
+                steps=stop_stack_steps(stack),
+            ),
+        )
+        if rc == 0:
             self.notify(f"{stack.name} stopped", title="AI")
-            stacks_tab.run_worker(stacks_tab._load())
+            stacks_tab.refresh_stacks()
         else:
             self.notify(f"Failed to stop {stack.name}", severity="error", title="AI")
 
     async def action_stack_logs(self) -> None:
         """View logs for the selected stack."""
         from bluefinctl.screens._modals import OperationLogModal
+
+        tabbed = self.query_one(TabbedContent)
+        if tabbed.active != "tab-stacks":
+            return
 
         stacks_tab = self.query_one(StacksTab)
         stack_list = stacks_tab.query_one("#stack-list", ListView)
@@ -315,7 +409,3 @@ class AIScreen(Screen[None]):
                 ["journalctl", "--user", "-u", stack.slug, "--no-pager", "-n", "100"],
             ),
         )
-
-    def action_filter_category(self) -> None:
-        """Toggle category filter (placeholder)."""
-        self.notify("Category filter coming soon", title="AI")
