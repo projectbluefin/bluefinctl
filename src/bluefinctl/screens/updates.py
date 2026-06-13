@@ -4,9 +4,13 @@ Controls:
 - Update strategy (automatic/notify/manual/scheduled)
 - Per-layer toggles (OS image, flatpaks, brew)
 - Focus mode (pause everything)
+- Deferral (snooze pending updates)
 - Channel (stable/testing/pinned)
 - Rollback info
+- Changelog (release notes)
 """
+
+from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -61,7 +65,11 @@ class StrategyCard(Static):
         }
         strategy = strategy_map.get(event.index, UpdateStrategy.AUTOMATIC)
         if strategy == UpdateStrategy.SCHEDULED:
-            self.app.notify("Scheduled mode requires additional configuration (not yet implemented)", severity="warning", title="Updates")
+            self.app.notify(
+                "Scheduled mode requires additional configuration (not yet implemented)",
+                severity="warning",
+                title="Updates",
+            )
             return
         self.run_worker(set_update_strategy(strategy), exclusive=True)
         self.app.notify(f"Strategy set to {strategy.value}", title="Updates")
@@ -229,7 +237,40 @@ class RollbackCard(Static):
             )
 
 
-class UpdatesScreen(Screen):
+class DeferralCard(Static):
+    """Update deferral — snooze pending updates."""
+
+    DEFAULT_CSS = """
+    DeferralCard { height: auto; padding: 1 2; }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Label("Deferral", classes="card--title")
+        yield Label(
+            "  When updates are pending:\n"
+            "  [1h] Snooze 1 hour    [Tonight] Apply tonight\n"
+            "  [Tomorrow] Apply tomorrow    [Skip] Skip this version",
+            id="deferral-info",
+        )
+
+
+class ChangelogCard(Static):
+    """Release notes / changelog viewer."""
+
+    DEFAULT_CSS = """
+    ChangelogCard { height: auto; padding: 1 2; max-height: 20; }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Label("Changelog", classes="card--title")
+        yield Label(
+            "  Release notes will be shown here when available.\n"
+            "  Sourced from upstream GitHub releases.",
+            id="changelog-content",
+        )
+
+
+class UpdatesScreen(Screen[None]):
     """Update management - strategy, focus mode, channel."""
 
     BINDINGS = [
@@ -251,9 +292,13 @@ class UpdatesScreen(Screen):
                 with Vertical(classes="card"):
                     yield LayerToggles()
                 with Vertical(classes="card"):
+                    yield DeferralCard()
+                with Vertical(classes="card"):
                     yield ChannelCard()
                 with Vertical(classes="card"):
                     yield RollbackCard()
+                with Vertical(classes="card"):
+                    yield ChangelogCard()
 
     async def action_channel_stable(self) -> None:
         await self._switch_channel("stable")
@@ -269,7 +314,11 @@ class UpdatesScreen(Screen):
         try:
             info = await get_system_info()
             if not info.image_ref or ":" not in info.image_ref:
-                self.notify("Could not determine current image ref", severity="error", title="Channel")
+                self.notify(
+                    "Could not determine current image ref",
+                    severity="error",
+                    title="Channel",
+                )
                 return
             base = info.image_ref.rsplit(":", 1)[0]
             target_ref = f"{base}:{'testing' if channel == 'testing' else 'latest'}"
@@ -280,7 +329,8 @@ class UpdatesScreen(Screen):
         confirmed = await self.app.push_screen_wait(
             ConfirmModal(
                 f"Switch to {channel.capitalize()} channel",
-                f"This will switch the OS image to {channel}. A reboot is required.\n\nTarget: {target_ref}",
+                f"This will switch the OS image to {channel}. "
+                f"A reboot is required.\n\nTarget: {target_ref}",
             )
         )
         if confirmed:
