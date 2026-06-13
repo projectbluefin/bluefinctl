@@ -8,7 +8,7 @@ description: Development patterns and conventions for the bluefinctl Textual TUI
 ## Quick start
 
 ```bash
-cd /var/home/jorge/src/bbrew
+cd /var/home/jorge/src/bluefinctl
 pip install -e ".[dev]"          # editable install
 ghostty -e bluefinctl &          # launch TUI
 ghostty -e textual run --dev src/bluefinctl/app.py &  # hot-reload CSS
@@ -19,22 +19,81 @@ ghostty -e textual run --dev src/bluefinctl/app.py &  # hot-reload CSS
 ```
 core/          Business logic only — NO Textual imports, fully testable
 screens/       One Screen subclass per panel, thin presentation layer
-widgets/       Reusable Textual widgets (LogView, etc.)
+widgets/       Reusable Textual widgets (OperationModal, LogView)
 theme/         GNOME accent color reader + bluefin.tcss
-util/          OSC escape sequences, Ghostty detection
+util/          OSC escape sequences, Ghostty detection, terminal launcher
 ```
 
 **Rule:** All subprocess calls, file I/O, and system state live in `core/`. Screens only call core functions and present results.
 
-## Five panels
+## Five screens (new architecture)
 
-| Key | Screen file | Core module |
-|-----|-------------|-------------|
-| 1 | screens/system.py | core/system.py |
-| 2 | screens/bundles.py | core/bundles.py |
-| 3 | screens/packages.py | core/brew.py |
-| 4 | screens/updates.py | core/updates.py |
-| 5 | screens/containers.py | (podman subprocess) |
+| Key | Screen file | Core module | Notes |
+|-----|-------------|-------------|-------|
+| 1 | screens/system.py | core/system.py | bootc systems only |
+| 2 | screens/updates.py | core/updates.py | bootc systems only |
+| 3 | screens/toolkit.py | core/bundles.py | kit management |
+| 4 | screens/devmode.py | core/devmode.py | 3 tabs: Overview/Tools/Envs |
+| 5 | screens/ai.py | core/ai.py | 2 tabs: Stacks/Tools |
+
+On non-bootc systems, System + Updates are hidden; Toolkit becomes screen 1.
+
+## Platform detection
+
+```python
+from bluefinctl.app import _is_bootc_system
+# Checks /run/ostree-booted or bootc status exit code
+```
+
+## Unified progress system
+
+Every operation uses `OperationModal` (widgets/operation_modal.py):
+
+```python
+from bluefinctl.core.progress import BrewInstallParser
+from bluefinctl.widgets.operation_modal import OperationModal
+
+# Subprocess with progress parsing
+rc = await self.app.push_screen_wait(
+    OperationModal(
+        "Installing Kit",
+        command=["brew", "bundle", "install", "--file=..."],
+        parser=BrewInstallParser(total_packages=12),
+    )
+)
+
+# Async generator workflow
+async def my_steps():
+    yield ProgressUpdate(percent=0, step=1, total_steps=3, message="Step 1")
+    # ... do work
+    yield ProgressUpdate(percent=100, message="Done")
+
+rc = await self.app.push_screen_wait(
+    OperationModal("My Operation", steps=my_steps())
+)
+```
+
+Available parsers:
+- `MultiStepParser(total_steps=N)` — wizard flows
+- `PodmanPullParser()` — layer download percentages
+- `BrewInstallParser(total_packages=N)` — formula install counting
+- `BootcSwitchParser()` — bootc stage detection
+- `IndeterminateParser()` — fallback (no percentage)
+
+## Resumable operations (core/operations.py)
+
+For operations that need reboot/logout:
+
+```python
+from bluefinctl.core.operations import Operation, OperationState, save_operation
+
+op = Operation(id="lima-setup-1", kind="lima-setup", steps_total=5)
+op.transition(OperationState.EXECUTING, "Installing Lima...")
+save_operation(op)
+# ... later, if reboot needed:
+op.transition(OperationState.NEEDS_RELOGIN, "Log out to apply groups")
+save_operation(op)
+```
 
 ## Reusable modals (screens/_modals.py)
 
@@ -45,133 +104,60 @@ Use `push_screen_wait()` for every destructive or long-running action:
 confirmed = await self.app.push_screen_wait(
     ConfirmModal("Title", "Are you sure?")
 )
-if confirmed: ...
 
 # Text input
 value = await self.app.push_screen_wait(
     InputModal("Add Package", "Package name", placeholder="e.g. htop")
 )
-if value is not None: ...
 
-# Streaming subprocess (shows live output, blocks until done)
+# Streaming subprocess (legacy — prefer OperationModal for new code)
 rc = await self.app.push_screen_wait(
-    OperationLogModal("Install Bundle", ["brew", "bundle", "install", "--file=..."])
+    OperationLogModal("Install", ["brew", "install", "htop"])
 )
-if rc == 0: ...
 ```
-
-`OperationLogModal` disables Close until the process exits. Never swallows errors.
-
-## Bundle system
-
-Bundles are the curated Brewfile collections at `/usr/share/ublue-os/homebrew/*.Brewfile`.  
-State is inferred by cross-referencing Brewfile contents against `brew list` + `flatpak list`.
-
-States: `BASE` (cli — always on) / `ACTIVE` / `PARTIAL` / `AVAILABLE`
-
-```python
-from bluefinctl.core.bundles import get_bundles, activate_bundle, deactivate_bundle
-bundles = await get_bundles()          # returns List[Bundle] with state
-await activate_bundle("k8s-tools")     # brew bundle install
-await deactivate_bundle("k8s-tools")   # removes orphaned packages only
-```
-
-Adding a new bundle: add an entry to `BUNDLE_REGISTRY` in `core/bundles.py`.
-
-## OSC 9;4 progress (Ghostty tab bar)
-
-Always write to `/dev/tty` — NOT `sys.stdout` (Textual owns stdout):
-
-```python
-from bluefinctl.util.osc import osc_progress, osc_progress_clear, osc_progress_indeterminate
-osc_progress_indeterminate()   # pulsing (unknown duration)
-osc_progress(50)               # 0-100
-osc_progress_clear()           # remove indicator
-```
-
-`LogView` and `OperationLogModal` call these automatically.
-
-## GNOME accent color
-
-Read once at startup, injected into Textual Theme:
-
-```python
-from bluefinctl.theme.accent import get_accent_hex
-# Returns hex like "#3584e4" for GNOME blue
-```
-
-In `app.py`, `register_theme(Theme(name="bluefin", primary=accent, accent=accent, ...))` maps the color across all widgets. Changing accent in GNOME Settings requires a restart.
 
 ## Adding a new screen
 
-1. Create `screens/myscreen.py` with a `MyScreen(Screen)` class
+1. Create `screens/myscreen.py` with a `MyScreen(Screen[None])` class
 2. Add a `Sidebar("myscreen")` in its `compose()`
-3. Register in `app.py` `on_mount`: `self.install_screen(MyScreen(), name="myscreen")`
-4. Add to `NAV_ITEMS` in `screens/_sidebar.py`
+3. Register in `app.py` `on_mount`
+4. Add to NAV_ITEMS in `screens/_sidebar.py`
 5. Add a `Binding` in `app.py`
+
+## OSC 9;4 progress (Ghostty tab bar)
+
+Always write to `/dev/tty` — NOT `sys.stdout` (Textual owns stdout).
+`OperationModal` handles this automatically.
+
+## GNOME accent color
+
+Read once at startup, injected into Textual Theme. Changing accent in GNOME requires a restart.
 
 ## Programmatic widget init — use `prevent()`, not a loading flag
 
-When a load worker sets widget values (Switch, RadioButton), Textual posts `Changed` events to the queue. A `_loading` guard is defeated by the async ordering — the flag clears before the event drains. Use `prevent()` instead:
-
 ```python
-# Switch batch-set — no Changed events fired
 with self.prevent(Switch.Changed):
     self.query_one("#layer-os", Switch).value = os_on
-    self.query_one("#layer-flatpak", Switch).value = flatpak_on
 
-# RadioButton set — no RadioSet.Changed fired
-buttons = list(radio_set.query(RadioButton))
 with self.prevent(RadioSet.Changed):
     buttons[idx].value = True
 ```
 
-`RadioSet.action_select_button()` does **not exist** in Textual 1.0. Set `RadioButton.value = True` directly.
+## Headless CLI
 
-## Writing to /etc/ from the TUI
-
-Files under `/etc/` require elevated privileges. Pipe JSON through `pkexec tee`:
-
-```python
-proc = await asyncio.create_subprocess_exec(
-    "pkexec", "tee", "/etc/uupd/config.json",
-    stdin=asyncio.subprocess.PIPE,
-    stdout=asyncio.subprocess.DEVNULL,  # must set DEVNULL — not omitting
-    stderr=asyncio.subprocess.DEVNULL,
-)
-await proc.communicate(json.dumps(cfg, indent=2).encode())
-if proc.returncode != 0:
-    raise RuntimeError(f"pkexec tee failed (exit {proc.returncode})")
-```
-
-`stdout=DEVNULL` is required — omitting it leaves the process hanging for a reader.
-
-## Tree nodes — store data, don't parse labels
-
-Always store structured data on tree leaf nodes. Label text is fragile to parse:
-
-```python
-# Good — store name directly
-pod_node.add_leaf(f"  {icon} {name}  ({image})  [{state}]", data=name)
-# Then in action handlers:
-ct_name = node.data
-```
-
-## Textual CSS constraints
-
-- `vh`/`vw` units are **not supported** — use fixed terminal row counts (`max-height: 45`)
-- `Static` does **not scroll** — wrap in `ScrollableContainer` when content may overflow
-- `overflow-y: auto` on `Static` is silently ignored
-
-## asyncio in async functions
-
-Use `asyncio.get_running_loop()` (not `get_event_loop()`) inside async functions — `get_event_loop()` is deprecated in Python 3.10+ when a loop is already running.
+Every TUI action has a headless equivalent via `cli.py`:
+- `bluefinctl status` — system info
+- `bluefinctl update` — trigger update
+- `bluefinctl devmode on|off|status`
+- `bluefinctl kit list|install <name>`
+- `bluefinctl ai list|deploy|stop <stack>`
 
 ## Common pitfalls
 
 - **Worker race**: always init mutable attrs in `__init__`, not just at end of worker
-- **Console() in core**: never use rich Console inside Textual — output goes to stdout (hidden). Use `self.notify()` for toasts or `OperationLogModal` for streaming
-- **pkexec hangs**: polkit auth dialog appears in a separate GTK window over Ghostty — this works fine. Don't add a timeout to pkexec calls
-- **Switch/RadioSet state**: set programmatically with `switch.value = True/False` or `radio_button.value = True` inside `prevent()` — see section above
-- **Tree refresh**: call `tree.root.remove_children()` then re-run the load worker with `exclusive=True`
-- **bootc switch**: takes a positional target, not `--target`. Use `["pkexec", "bootc", "switch", ref]`
+- **Console() in core**: never use rich Console inside Textual — use `self.notify()`
+- **pkexec hangs**: polkit auth dialog appears in a separate GTK window — don't add timeouts
+- **Tree refresh**: `tree.root.remove_children()` then re-run worker with `exclusive=True`
+- **bootc switch**: positional target, not `--target`. Use `["pkexec", "bootc", "switch", ref]`
+- **Textual CSS**: `vh`/`vw` units NOT supported. `Static` does NOT scroll (wrap in ScrollableContainer)
+- **asyncio**: use `get_running_loop()` not `get_event_loop()` in async functions
