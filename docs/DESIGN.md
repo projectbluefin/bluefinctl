@@ -52,35 +52,33 @@ Every subcommand works headless (no TUI) for scripting/CI. The TUI is the defaul
 src/bluefinctl/
 ├── __main__.py              # python -m bluefinctl entry
 ├── cli.py                   # Typer CLI entry point (headless path for every operation)
-├── app.py                   # Textual App: screen registration, keybinds, theme, Command Palette
+├── app.py                   # Textual App: screen registration, theme switching, Command Palette
 ├── core/                    # Business logic — NO Textual imports, fully testable
 │   ├── system.py            # image-info, GPU detection, bootc status
 │   ├── updates.py           # uupd config, systemd timer management, focus mode state machine
-│   ├── kits.py              # Kit discovery, install/remove, Brewfile layer management
+│   ├── bundles.py           # Kit/bundle discovery, install/remove, Brewfile layer management
 │   ├── devmode.py           # Developer mode: groups, runtime health, Lima lifecycle
 │   ├── ai.py                # AI stack: discovery, preflight, deploy, lifecycle
 │   ├── progress.py          # ProgressParser protocol, per-tool parsers
 │   └── operations.py        # Resumable operation state machine (for reboot-required flows)
 ├── screens/
-│   ├── system.py            # System health overview + quick actions (cards)
-│   ├── updates.py           # Update strategy, focus, snooze, channel, rollback (cards)
-│   ├── toolkit.py           # Kit management (TabbedContent: Kits)
+│   ├── system.py            # System health overview + quick actions (AdwPropertyRow/AdwButtonRow)
+│   ├── updates.py           # Update strategy, focus, layers, channel, rollback (AdwSwitchRow etc.)
+│   ├── toolkit.py           # Kit management — list + scrollable detail pane
 │   ├── devmode.py           # Developer experience (TabbedContent: Overview/Tools/Environments)
 │   ├── ai.py                # AI workstation (TabbedContent: Stacks/Tools)
+│   ├── _sidebar.py          # Left navigation (28 cols, clickable items, section separators)
 │   └── _modals.py           # Shared modals: confirm, input, operation log, help
 ├── widgets/
-│   ├── sidebar.py           # Left navigation with visual separators
+│   ├── adw.py               # GNOME HIG widget library (AdwPreferencesGroup, AdwSwitchRow, etc.)
 │   ├── operation_modal.py   # Unified progress: title + ProgressBar + collapsible log
-│   ├── kit_list.py          # Kit ListView with status indicators
-│   ├── stack_catalog.py     # AI stack catalog with VRAM badges
-│   ├── gpu_badge.py         # GPU vendor + VRAM indicator
-│   └── changelog.py         # MarkdownViewer wrapper for release notes
+│   └── log_view.py          # Scrollable log widget
 ├── theme/
-│   ├── accent.py            # GNOME accent color reader (gsettings)
-│   └── bluefin.tcss         # Textual CSS stylesheet
+│   ├── accent.py            # GNOME gsettings reader: accent color + color-scheme + build_theme()
+│   └── bluefin.tcss         # Textual CSS (structural rules only — colors from Theme object)
 └── util/
     ├── osc.py               # OSC 9;4 progress, OSC 8 hyperlinks
-    ├── ghostty.py           # Ghostty detection, Kitty keyboard protocol
+    ├── ghostty.py           # Ghostty detection
     └── terminal.py          # Launch external apps (podman-tui) in new terminal
 ```
 
@@ -89,7 +87,20 @@ src/bluefinctl/
 1. **All subprocess calls, file I/O, and system state live in `core/`.** Screens only call core functions and present results.
 2. **Every operation has a headless CLI path (`cli.py`) and a TUI path (screens).** They share the same core functions.
 3. **Unified progress for all operations.** No raw subprocess output shown to users. Every tool gets a `ProgressParser` that extracts progress where possible.
-4. **Resumable operations.** Operations requiring reboot/logout persist state to `~/.local/state/bluefinctl/operations.json` and resume on next launch.
+4. **GNOME HIG widget library.** All screens use `widgets/adw.py` — never raw `Static` + border layout. See `docs/skills/textual-dev.md` for the full widget reference.
+5. **Live dark/light mode.** The app watches `gsettings monitor org.gnome.desktop.interface` and hot-switches between `bluefin-dark` and `bluefin-light` themes. TCSS never hardcodes color variables.
+6. **Resumable operations.** Operations requiring reboot/logout persist state to `~/.local/state/bluefinctl/operations.json` and resume on next launch.
+
+### Theme System
+
+```
+GNOME gsettings color-scheme → build_theme(scheme, accent) → Textual Theme
+                                     ↑
+           gsettings monitor stream ─┘ (live, no restart needed)
+
+bluefin-dark:  Dark 4/3/2 palette   #241f31 / #3d3846 / #5e5c64
+bluefin-light: Light 2/1/3 palette  #f6f5f4 / #ffffff / #deddda
+```
 
 ### State Management
 
@@ -166,67 +177,49 @@ Detection still checks for `/run/ostree-booted` or `bootc status` exit code. The
 
 ### 1. System (home)
 
-The landing screen. At-a-glance machine identity and health. Cards layout, scrollable. On non-bootc systems, it degrades in-place with unavailable bootc controls disabled.
+The landing screen. `AdwPreferencesGroup` rows for identity, hardware, health, and quick actions. On non-bootc systems, bootc-specific rows show "unavailable" in-place.
 
-**Cards:**
+**Groups:**
 
-| Card | Content |
-|------|---------|
-| Identity | Full image ref: `ghcr.io/projectbluefin/bluefin:43-stable`, boot status, hostname |
-| Hardware | GPU: `NVIDIA RTX 4090 (24 GB VRAM)` or `AMD Radeon RX 7900 XTX (24 GB)`, CPU, RAM |
-| Health | `[ok] GPU driver  [ok] systemd  [ok] Homebrew  [!] 2 updates available` |
-| Running Services | Pod count: `3 pods active (2 AI, 1 dev)` with `[c]` launch podman-tui |
-| Active Kits | Summary: `Terminal, AI Tools, Fonts — 53 packages managed` |
-| Quick Actions | `[u] Update All  [d] Devmode  [r] System Report` |
+| Group | Widgets |
+|-------|---------|
+| System | Full image ref, boot status, hostname — `AdwPropertyRow` × 3 |
+| Hardware | GPU model + VRAM, devmode status — `AdwPropertyRow` × 2 |
+| Health | GPU driver, system services, Homebrew — `AdwPropertyRow` × 3 |
+| Active Kits | Kit names summary — `AdwPropertyRow` |
+| Quick Actions | Update All (primary), Devmode, Report, podman-tui — `AdwButtonRow` × 4 |
 
-**Interactions:**
-- `u` — trigger update (shows progress modal)
-- `d` — toggle devmode (confirmation modal)
-- `r` — generate system report (shows in operation modal)
-- `c` — launch podman-tui in a new terminal window
-- Enter on any card — jump to relevant screen
-
-**Degraded mode:** If `podman-tui` is not installed, Running Services card shows "Install podman-tui" action. If GPU detection fails, Hardware card shows "No discrete GPU detected."
+**Keybindings:** `u` update, `d` devmode, `r` report, `c` podman-tui
 
 ---
 
 ### 2. Updates
 
-Update policy management. Scrollable card layout. Dangerous operations (channel switch, rollback) require a confirmation modal.
+Update policy management. Single-column `ScrollableContainer`, five `AdwPreferencesGroup` sections.
+Dangerous operations (channel switch, rollback) require a confirmation modal.
 
-**Implemented cards:**
+**Groups:**
 
-| Card | Widgets | What it does |
-|------|---------|--------------|
-| Update Strategy | RadioSet: Automatic / Notify / Manual | Sets uupd timer policy immediately |
-| Focus Mode | Switch | Masks/unmasks uupd.timer |
-| Per-Layer Control | Three Switches: OS Image, Flatpaks, Homebrew | Writes `/etc/uupd/config.json` via pkexec |
-| Channel | Label + **Stable** / **Testing** / **Update Now** buttons | `bootc switch` after confirmation modal |
-| Rollback | Label (previous image) + **Rollback to previous** button | `bootc rollback` after confirmation modal |
+| Group | Widgets | What it does |
+|-------|---------|--------------|
+| Update Strategy | `AdwComboRow`: Automatic / Notify / Manual | Sets uupd timer policy immediately |
+| Update Layers | `AdwSwitchRow` × 3: OS Image, Flatpaks, Homebrew | Writes `/etc/uupd/config.json` via pkexec |
+| Focus Mode | `AdwSwitchRow` | Masks/unmasks uupd.timer |
+| Channel | `AdwPropertyRow` (current) + `AdwButtonRow` × 2 (stable/testing/update) | `bootc switch` after confirmation |
+| Rollback | `AdwPropertyRow` (previous) + `AdwButtonRow` destructive | `bootc rollback` after confirmation |
 
 **Not yet implemented:**
 - Deferral snooze (1h / Tonight / Tomorrow)
 - Changelog / release notes viewer
 - Scheduled strategy time-picker
-- Date-based rollback calendar
 
-**Keybindings:**
-- `s` — switch to stable (`bootc switch`)
-- `t` — switch to testing (`bootc switch`)
-- `u` — update now (`systemctl start uupd.service`)
-- `R` — rollback to previous deployment (`bootc rollback`)
+**Keybindings:** `s` stable, `t` testing, `u` update now, `R` rollback
 
 ---
 
 ### 3. Toolkit
 
-Software kit management. TabbedContent with one tab: **Kits**.
-
-Individual package installation lives in the Command Palette (Ctrl+P), not on this screen. Footer shows: `Ctrl+P: install/search packages | Enter: activate kit | r: refresh`
-
-**Kits tab (default):**
-
-Two-column layout: kit list (left) + detail pane (right).
+Software kit management. Two-column layout: kit list (left) + detail pane (right).
 
 Kit list shows use-case oriented collections:
 

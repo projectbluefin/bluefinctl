@@ -23,28 +23,40 @@ from textual.screen import Screen
 from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
 from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.widgets.adw import AdwPreferencesGroup, AdwPropertyRow
 
 
-class GpuCard(Static):
+class GpuCard(AdwPreferencesGroup):
     """GPU detection card shown at top of Stacks tab."""
 
-    DEFAULT_CSS = """
-    GpuCard { height: auto; }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Label("GPU", classes="card--title")
-        yield Label("  Detecting...", id="gpu-info")
+    def __init__(self) -> None:
+        super().__init__(
+            "GPU",
+            AdwPropertyRow("Vendor", "Detecting…", id="gpu-vendor"),
+            AdwPropertyRow("VRAM", "—", id="gpu-vram"),
+            AdwPropertyRow("Driver", "—", id="gpu-driver"),
+        )
 
     def on_mount(self) -> None:
         self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
-        from bluefinctl.core.ai import detect_gpu
-
+        from bluefinctl.core.ai import GpuVendor, detect_gpu
         loop = asyncio.get_running_loop()
         gpu = await loop.run_in_executor(None, detect_gpu)
-        self.query_one("#gpu-info", Label).update(f"  {gpu.display}")
+        if gpu.vendor == GpuVendor.NONE:
+            self.query_one("#gpu-vendor", AdwPropertyRow).update_value("No discrete GPU")
+        else:
+            self.query_one("#gpu-vendor", AdwPropertyRow).update_value(
+                f"{gpu.vendor.value.upper()} {gpu.model}"
+            )
+            self.query_one("#gpu-vram", AdwPropertyRow).update_value(
+                f"{gpu.vram_gb} GB" if gpu.vram_gb else "—"
+            )
+            driver_info = gpu.driver_version if gpu.driver_version else "—"
+            if gpu.cdi_active:
+                driver_info += "  ·  CDI active"
+            self.query_one("#gpu-driver", AdwPropertyRow).update_value(driver_info)
 
 
 class StacksTab(Static):
@@ -76,9 +88,7 @@ class StacksTab(Static):
         self._stacks: list[Any] = []
 
     def compose(self) -> ComposeResult:
-        with Static(classes="card"):
-            yield GpuCard()
-        yield Label("")
+        yield GpuCard()
         with Horizontal(id="stack-list-container"):
             yield ListView(id="stack-list")
             with Vertical(id="stack-detail"):

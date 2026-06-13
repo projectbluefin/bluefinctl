@@ -8,6 +8,7 @@ Five-screen navigation:
   AI       — GPU-accelerated AI stack management
 """
 
+import asyncio
 from typing import Any
 
 from textual.app import App, ComposeResult
@@ -15,7 +16,7 @@ from textual.binding import Binding
 from textual.widgets import Footer, Header
 
 from bluefinctl.commands import ActionsProvider, NavigationProvider, PackageProvider
-from bluefinctl.theme.accent import get_accent_color
+from bluefinctl.theme.accent import build_theme, get_accent_color, get_color_scheme
 
 
 def _is_bootc_system() -> bool:
@@ -59,7 +60,6 @@ class BluefinCtl(App[None]):
     def __init__(self, start_screen: str | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._start_screen = start_screen
-        self._accent_color = get_accent_color()
         self._is_bootc = _is_bootc_system()
         self._screen_keys: dict[str, str] = {
             "screen1": "system",
@@ -69,34 +69,25 @@ class BluefinCtl(App[None]):
             "screen5": "ai",
         }
 
-    def on_mount(self) -> None:
-        from textual.theme import Theme
+    def _apply_system_theme(self) -> None:
+        """Read current GNOME color-scheme + accent and register/activate theme."""
+        scheme = get_color_scheme()
+        accent = get_accent_color()
+        theme = build_theme(scheme, accent)
+        self.register_theme(theme)
+        self.theme = theme.name
 
+    def on_mount(self) -> None:
         from bluefinctl.screens.ai import AIScreen
         from bluefinctl.screens.devmode import DevModeScreen
         from bluefinctl.screens.system import SystemScreen
         from bluefinctl.screens.toolkit import ToolkitScreen
         from bluefinctl.screens.updates import UpdatesScreen
-        from bluefinctl.theme.accent import get_accent_hex
 
-        # Register dynamic theme with GNOME accent color
-        accent = get_accent_hex()
-        self.register_theme(Theme(
-            name="bluefin",
-            primary=accent,
-            accent=accent,
-            background="#1a1a2e",
-            surface="#16213e",
-            panel="#1f3460",
-            error="#f44336",
-            warning="#ff9800",
-            success="#4caf50",
-            dark=True,
-        ))
-        self.theme = "bluefin"
+        # Apply system theme (dark or light, with correct accent)
+        self._apply_system_theme()
 
-        # Always expose all five panels. Platform detection is retained for
-        # degraded screen content, not for hiding navigation targets.
+        # Register all screens
         self.install_screen(SystemScreen(), name="system")
         self.install_screen(UpdatesScreen(), name="updates")
         self.install_screen(ToolkitScreen(), name="toolkit")
@@ -104,6 +95,28 @@ class BluefinCtl(App[None]):
         self.install_screen(AIScreen(), name="ai")
 
         self.push_screen(self._start_screen or "system")
+
+        # Watch for live GNOME theme changes
+        self.run_worker(self._watch_system_theme(), exclusive=True)
+
+    async def _watch_system_theme(self) -> None:
+        """Stream gsettings monitor and switch theme on color-scheme/accent changes."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gsettings", "monitor", "org.gnome.desktop.interface",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if proc.stdout:
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode(errors="replace")
+                    if "color-scheme" in line or "accent-color" in line:
+                        # Clear lru_cache so next read picks up new values
+                        get_color_scheme.cache_clear()
+                        get_accent_color.cache_clear()
+                        self._apply_system_theme()
+        except (FileNotFoundError, OSError):
+            pass  # gsettings not available (non-GNOME system)
 
     def compose(self) -> ComposeResult:
         """App chrome — header with system identity."""

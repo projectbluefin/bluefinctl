@@ -19,89 +19,72 @@ from textual.binding import Binding
 from textual.containers import ScrollableContainer
 from textual.css.query import NoMatches
 from textual.screen import Screen
-from textual.widgets import Button, Label, ListItem, ListView, Static, TabbedContent, TabPane
+from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
 from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.widgets.adw import (
+    AdwButtonRow,
+    AdwPreferencesGroup,
+    AdwPropertyRow,
+)
 
 
 class OverviewTab(Static):
     """DevMode Overview — status card, runtime health, quick actions."""
 
-    DEFAULT_CSS = """
-    OverviewTab { height: auto; padding: 1 0; }
-    """
+    DEFAULT_CSS = "OverviewTab { height: auto; padding: 1 0; }"
 
     def compose(self) -> ComposeResult:
-        with Static(classes="card"):
-            yield Label("Developer Mode", classes="card--title")
-            yield Label("  Checking...", id="devmode-status")
-            yield Button("Enable Developer Mode", id="btn-toggle-devmode", variant="primary")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Runtime Health", classes="card--title")
-            yield Label("  Checking...", id="runtime-health")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Quick Actions", classes="card--title")
-            yield Label(
-                "  [c] podman-tui    [v] VSCode    [l] Lima shell",
-            )
+        yield AdwPreferencesGroup(
+            "Developer Mode",
+            AdwPropertyRow("Status", "Checking…", id="devmode-status"),
+            AdwPropertyRow("Groups", "", id="devmode-groups"),
+            AdwButtonRow("Enable Developer Mode", variant="primary", id="btn-toggle-devmode"),
+        )
+        yield AdwPreferencesGroup(
+            "Runtime Health",
+            AdwPropertyRow("Docker", "Checking…", id="health-docker"),
+            AdwPropertyRow("Podman", "Checking…", id="health-podman"),
+            AdwPropertyRow("Lima", "Checking…", id="health-lima"),
+        )
+        yield AdwPreferencesGroup(
+            "Quick Actions",
+            AdwButtonRow("Launch podman-tui", id="btn-podman-tui"),
+            AdwButtonRow("Open VSCode", id="btn-vscode"),
+        )
 
     def on_mount(self) -> None:
         self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
         from bluefinctl.core.devmode import _check_devmode_active
-
         loop = asyncio.get_running_loop()
         state = await loop.run_in_executor(None, _check_devmode_active)
 
         if state.active:
-            groups = ", ".join(state.groups or [])
-            self.query_one("#devmode-status", Label).update(
-                f"  Status: ACTIVE\n  Groups: {groups}"
+            self.query_one("#devmode-status", AdwPropertyRow).update_value("Active")
+            self.query_one("#devmode-groups", AdwPropertyRow).update_value(
+                ", ".join(state.groups or [])
             )
-            self.query_one("#btn-toggle-devmode", Button).label = "Disable Developer Mode"
-            self.query_one("#btn-toggle-devmode", Button).variant = "error"
+            self.query_one("#btn-toggle-devmode", AdwButtonRow)._title = "Disable Developer Mode"
+            self.query_one("#btn-toggle-devmode", AdwButtonRow)._variant = "destructive"
         else:
-            self.query_one("#devmode-status", Label).update(
-                "  Status: INACTIVE\n  Not in docker/mock/lxd groups"
-            )
-            self.query_one("#btn-toggle-devmode", Button).label = "Enable Developer Mode"
-            self.query_one("#btn-toggle-devmode", Button).variant = "primary"
+            self.query_one("#devmode-status", AdwPropertyRow).update_value("Inactive")
 
-        # Check runtime health
-        health_lines: list[str] = []
+        # Runtime health
+        for cmd, id_ in [("docker", "health-docker"), ("podman", "health-podman")]:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    cmd, "info",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.communicate()
+                status = "✓ ok" if proc.returncode == 0 else "✗ not running"
+            except FileNotFoundError:
+                status = "— not installed"
+            self.query_one(f"#{id_}", AdwPropertyRow).update_value(status)
 
-        # Docker socket
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "info",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.communicate()
-            health_lines.append(
-                "[ok] Docker" if proc.returncode == 0 else "[X] Docker",
-            )
-        except FileNotFoundError:
-            health_lines.append("[--] Docker (not installed)")
-
-        # Podman socket
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "podman", "info",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.communicate()
-            health_lines.append(
-                "[ok] Podman" if proc.returncode == 0 else "[X] Podman",
-            )
-        except FileNotFoundError:
-            health_lines.append("[--] Podman (not installed)")
-
-        # Lima
         try:
             proc = await asyncio.create_subprocess_exec(
                 "lima", "list", "--format", "{{.Name}}",
@@ -110,20 +93,27 @@ class OverviewTab(Static):
             )
             stdout, _ = await proc.communicate()
             if proc.returncode == 0 and stdout.strip():
-                vms = stdout.decode().strip().split("\n")
-                health_lines.append(f"[ok] Lima ({len(vms)} VM(s))")
+                vms = [v for v in stdout.decode().strip().split("\n") if v]
+                lima_status = f"✓ {len(vms)} VM(s)"
             else:
-                health_lines.append("[--] Lima (no VMs)")
+                lima_status = "— no VMs"
         except FileNotFoundError:
-            health_lines.append("[--] Lima (not installed)")
+            lima_status = "— not installed"
+        self.query_one("#health-lima", AdwPropertyRow).update_value(lima_status)
 
-        self.query_one("#runtime-health", Label).update(
-            "  " + "    ".join(health_lines),
-        )
+    def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
+        if event.row.id == "btn-toggle-devmode":
+            self.app.call_later(self.screen.action_toggle_devmode)  # type: ignore[attr-defined]
+        elif event.row.id == "btn-podman-tui":
+            self.screen.action_launch_podman_tui()  # type: ignore[attr-defined]
+        elif event.row.id == "btn-vscode":
+            import shutil
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-toggle-devmode":
-            self.app.call_later(self.app.run_action, "toggle_devmode")
+            from bluefinctl.util.terminal import launch_in_terminal
+            if shutil.which("code"):
+                launch_in_terminal(["code", "--new-window"], title="VSCode")
+            else:
+                self.app.notify("VSCode not found", severity="warning")
 
 
 class ToolsTab(Static):
@@ -147,7 +137,6 @@ class ToolsTab(Static):
 
     async def _load(self) -> None:
         from bluefinctl.core.devmode import get_dev_tools_status
-
         loop = asyncio.get_running_loop()
         self._tools = await loop.run_in_executor(None, get_dev_tools_status)
         try:
@@ -155,18 +144,17 @@ class ToolsTab(Static):
         except NoMatches:
             return
         tool_list.clear()
-
         current_category = ""
         for tool in self._tools:
             if tool.category != current_category:
                 current_category = tool.category
-                tool_list.append(ListItem(Label(f"  -- {current_category} --"), disabled=True))
-            status = "[ok]" if tool.installed else "[--]"
-            label = f"  {status} {tool.name:<22} {tool.description}"
-            tool_list.append(ListItem(Label(label), name=tool.slug))
+                tool_list.append(ListItem(Label(f"  — {current_category} —"), disabled=True))
+            status = "✓" if tool.installed else "·"
+            tool_list.append(
+                ListItem(Label(f"  {status}  {tool.name:<22} {tool.description}"), name=tool.slug)
+            )
 
     def selected_tool(self) -> DevTool | None:
-        """Return the selected DevTool, skipping disabled category rows."""
         try:
             tool_list = self.query_one("#tools-list", ListView)
         except NoMatches:
@@ -174,54 +162,42 @@ class ToolsTab(Static):
         if tool_list.highlighted_child is None:
             return None
         slug = tool_list.highlighted_child.name
-        if slug is None:
-            return None
-        return next((tool for tool in self._tools if tool.slug == slug), None)
+        return next((t for t in self._tools if t.slug == slug), None)
 
     def refresh_tools(self) -> None:
-        """Refresh tool status."""
         self.run_worker(self._load(), exclusive=True)
 
 
 class EnvironmentsTab(Static):
     """DevMode Environments — Podman, Distrobox, Lima."""
 
-    DEFAULT_CSS = """
-    EnvironmentsTab { height: auto; padding: 1 0; }
-    """
+    DEFAULT_CSS = "EnvironmentsTab { height: auto; padding: 1 0; }"
 
     def compose(self) -> ComposeResult:
-        with Static(classes="card"):
-            yield Label("Tier 1: Podman Desktop", classes="card--title")
-            yield Label("  Checking...", id="env-podman")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Tier 2: Distrobox", classes="card--title")
-            yield Label("  Checking...", id="env-distrobox")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Tier 3: Lima", classes="card--title")
-            yield Label("  Checking...", id="env-lima")
+        yield AdwPreferencesGroup(
+            "Tier 1 — Podman Desktop",
+            AdwPropertyRow("Status", "Checking…", id="env-podman"),
+        )
+        yield AdwPreferencesGroup(
+            "Tier 2 — Distrobox",
+            AdwPropertyRow("Containers", "Checking…", id="env-distrobox"),
+        )
+        yield AdwPreferencesGroup(
+            "Tier 3 — Lima",
+            AdwPropertyRow("VMs", "Checking…", id="env-lima"),
+            AdwButtonRow("Set Up Lima VM", id="btn-lima-setup"),
+        )
 
     def on_mount(self) -> None:
         self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
-        # Podman Desktop
         import shutil
-
         if shutil.which("podman-desktop"):
-            self.query_one("#env-podman", Label).update(
-                "  [ok] Installed\n"
-                "  Action: [open] Podman Desktop",
-            )
+            self.query_one("#env-podman", AdwPropertyRow).update_value("✓ installed")
         else:
-            self.query_one("#env-podman", Label).update(
-                "  Docker-compatible, zero VM tax\n"
-                "  [--] Not installed",
-            )
+            self.query_one("#env-podman", AdwPropertyRow).update_value("— not installed")
 
-        # Distrobox containers
         try:
             proc = await asyncio.create_subprocess_exec(
                 "distrobox", "list", "--no-color",
@@ -230,67 +206,31 @@ class EnvironmentsTab(Static):
             )
             stdout, _ = await proc.communicate()
             if proc.returncode == 0:
-                lines = stdout.decode().strip().split("\n")
-                # Skip header line
-                containers = [ln for ln in lines[1:] if ln.strip()]
-                if containers:
-                    display_lines = []
-                    for c in containers[:5]:
-                        parts = c.split("|")
-                        if len(parts) >= 3:
-                            name = parts[1].strip()
-                            status = parts[2].strip()
-                            display_lines.append(f"    {name:<20} [{status}]")
-                    self.query_one("#env-distrobox", Label).update(
-                        f"  {len(containers)} container(s)\n"
-                        + "\n".join(display_lines)
-                        + "\n  Action: [n]ew container  [e]nter selected",
-                    )
-                else:
-                    self.query_one("#env-distrobox", Label).update(
-                        "  No containers\n"
-                        "  Action: [n]ew container",
-                    )
-            else:
-                self.query_one("#env-distrobox", Label).update(
-                    "  [--] distrobox not available",
+                lines = [ln for ln in stdout.decode().strip().split("\n")[1:] if ln.strip()]
+                self.query_one("#env-distrobox", AdwPropertyRow).update_value(
+                    f"{len(lines)} container(s)" if lines else "none"
                 )
+            else:
+                self.query_one("#env-distrobox", AdwPropertyRow).update_value("— unavailable")
         except FileNotFoundError:
-            self.query_one("#env-distrobox", Label).update(
-                "  [--] distrobox not installed",
-            )
+            self.query_one("#env-distrobox", AdwPropertyRow).update_value("— not installed")
 
-        # Lima
         try:
             proc = await asyncio.create_subprocess_exec(
-                "lima", "list", "--format",
-                "{{.Name}} {{.Status}}",
+                "lima", "list", "--format", "{{.Name}} {{.Status}}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
             stdout, _ = await proc.communicate()
             if proc.returncode == 0 and stdout.strip():
-                vms = stdout.decode().strip().split("\n")
-                display_lines = []
-                for vm in vms[:5]:
-                    display_lines.append(f"    {vm}")
-                self.query_one("#env-lima", Label).update(
-                    "  WSL-equivalent Ubuntu VM\n"
-                    + "\n".join(display_lines)
-                    + "\n  Action: manage from Lima tooling",
+                vms = [v for v in stdout.decode().strip().split("\n") if v]
+                self.query_one("#env-lima", AdwPropertyRow).update_value(
+                    f"{len(vms)} VM(s) — {vms[0]}"
                 )
             else:
-                self.query_one("#env-lima", Label).update(
-                    "  WSL-equivalent Ubuntu VM — persistent, $HOME mounted\n"
-                    "  [--] Not set up\n"
-                    "  Action: guided setup coming soon",
-                )
+                self.query_one("#env-lima", AdwPropertyRow).update_value("— not set up")
         except FileNotFoundError:
-            self.query_one("#env-lima", Label).update(
-                "  WSL-equivalent Ubuntu VM\n"
-                "  [--] Lima not installed\n"
-                "  Install via: brew install lima",
-            )
+            self.query_one("#env-lima", AdwPropertyRow).update_value("— not installed")
 
 
 class DevModeScreen(Screen[None]):
@@ -303,50 +243,39 @@ class DevModeScreen(Screen[None]):
     ]
 
     DEFAULT_CSS = """
-    DevModeScreen {
-        layout: horizontal;
-    }
-    #devmode-content {
-        width: 1fr;
-        height: 1fr;
-        padding: 1 2;
-    }
+    DevModeScreen { layout: horizontal; }
+    #devmode-content { width: 1fr; height: 1fr; padding: 1 2; }
     """
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
-        """Disable Install footer hint when not on the Tools tab."""
         if action == "install_selected_tool":
             try:
                 return self.query_one(TabbedContent).active == "tab-tools"
-            except NoMatches:  # widget not yet mounted
+            except NoMatches:
                 return None
         return None
 
     def compose(self) -> ComposeResult:
         yield Sidebar(active="devmode")
-        with ScrollableContainer(id="devmode-content"), TabbedContent():
-            with TabPane("Overview", id="tab-overview"):
-                yield OverviewTab()
-            with TabPane("Tools", id="tab-tools"):
-                yield ToolsTab()
-            with TabPane("Environments", id="tab-envs"):
-                yield EnvironmentsTab()
+        with ScrollableContainer(id="devmode-content"):
+            with TabbedContent():
+                with TabPane("Overview", id="tab-overview"):
+                    yield OverviewTab()
+                with TabPane("Tools", id="tab-tools"):
+                    yield ToolsTab()
+                with TabPane("Environments", id="tab-envs"):
+                    yield EnvironmentsTab()
 
     async def action_toggle_devmode(self) -> None:
-        """Enable or disable developer mode."""
         import os
 
         from bluefinctl.core.devmode import _check_devmode_active
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
-
         state = _check_devmode_active()
         username = os.environ.get("USER", "")
         if state.active:
             confirmed = await self.app.push_screen_wait(
-                ConfirmModal(
-                    "Disable Developer Mode",
-                    f"Remove docker/mock/lxd groups from {username}?",
-                )
+                ConfirmModal("Disable Developer Mode", f"Remove groups from {username}?")
             )
             if confirmed:
                 cmds = " && ".join([
@@ -364,10 +293,7 @@ class DevModeScreen(Screen[None]):
                     )
         else:
             confirmed = await self.app.push_screen_wait(
-                ConfirmModal(
-                    "Enable Developer Mode",
-                    f"Add {username} to docker, mock, lxd groups?",
-                )
+                ConfirmModal("Enable Developer Mode", f"Add {username} to docker/mock/lxd groups?")
             )
             if confirmed:
                 cmds = " && ".join([
@@ -385,27 +311,21 @@ class DevModeScreen(Screen[None]):
                     )
 
     def action_launch_podman_tui(self) -> None:
-        """Launch podman-tui in a new terminal."""
         import shutil
 
         from bluefinctl.util.terminal import launch_in_terminal
-
         if shutil.which("podman-tui"):
             launch_in_terminal(["podman-tui"], title="podman-tui")
         else:
             self.notify("podman-tui not installed", severity="warning")
 
     async def action_install_selected_tool(self) -> None:
-        """Install the selected missing developer tool from the Tools tab."""
         from bluefinctl.core.devmode import install_dev_tool_steps
         from bluefinctl.screens._modals import ConfirmModal
         from bluefinctl.widgets.operation_modal import OperationModal
-
-        # Only act when the Tools tab is active to avoid accidental installs
         tabbed = self.query_one(TabbedContent)
         if tabbed.active != "tab-tools":
             return
-
         tools_tab = self.query_one(ToolsTab)
         tool = tools_tab.selected_tool()
         if tool is None:
@@ -414,21 +334,13 @@ class DevModeScreen(Screen[None]):
         if tool.installed:
             self.notify(f"{tool.name} is already installed", title="DevMode")
             return
-
         confirmed = await self.app.push_screen_wait(
-            ConfirmModal(
-                f"Install {tool.name}?",
-                f"Install {tool.name} via Homebrew?",
-            ),
+            ConfirmModal(f"Install {tool.name}?", "Install via Homebrew?")
         )
         if not confirmed:
             return
-
         rc = await self.app.push_screen_wait(
-            OperationModal(
-                f"Installing {tool.name}",
-                steps=install_dev_tool_steps(tool),
-            ),
+            OperationModal(f"Installing {tool.name}", steps=install_dev_tool_steps(tool))
         )
         if rc == 0:
             self.notify(f"{tool.name} installed", title="DevMode")
@@ -437,26 +349,19 @@ class DevModeScreen(Screen[None]):
             self.notify(f"Failed to install {tool.name}", severity="error", title="DevMode")
 
     async def action_install_all(self) -> None:
-        """Install all missing dev tools."""
         from bluefinctl.core.devmode import install_missing_dev_tools_steps
         from bluefinctl.screens._modals import ConfirmModal
         from bluefinctl.widgets.operation_modal import OperationModal
-
         confirmed = await self.app.push_screen_wait(
-            ConfirmModal(
-                "Install All Dev Tools",
-                "Install all missing developer tools via Homebrew?",
-            ),
+            ConfirmModal("Install All Dev Tools", "Install all missing developer tools?")
         )
         if confirmed:
             rc = await self.app.push_screen_wait(
-                OperationModal(
-                    "Installing Dev Tools",
-                    steps=install_missing_dev_tools_steps(),
-                ),
+                OperationModal("Installing Dev Tools", steps=install_missing_dev_tools_steps())
             )
             if rc == 0:
                 self.notify("All dev tools installed", title="DevMode")
                 self.query_one(ToolsTab).refresh_tools()
             else:
                 self.notify("Failed to install dev tools", severity="error", title="DevMode")
+

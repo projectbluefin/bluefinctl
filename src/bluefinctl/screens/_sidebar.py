@@ -76,7 +76,7 @@ class Sidebar(Static):
 
     DEFAULT_CSS = """
     Sidebar {
-        width: 22;
+        width: 28;
         background: $surface;
         border-right: thick $panel;
         padding: 1 0;
@@ -85,6 +85,11 @@ class Sidebar(Static):
         padding: 1 2;
         color: $accent;
         text-style: bold;
+    }
+    #sidebar-section {
+        padding: 0 2;
+        color: $text-muted;
+        height: 1;
     }
     """
 

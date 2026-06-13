@@ -1,6 +1,6 @@
 ---
 name: bluefinctl-dev
-description: Development patterns and conventions for the bluefinctl Textual TUI project. Use when working in /var/home/jorge/src/bbrew, adding screens, wiring actions, creating modals, or modifying the theme/bundle system.
+description: Development patterns and conventions for the bluefinctl Textual TUI project. Use when working in /var/home/jorge/src/bluefinctl, adding screens, wiring actions, creating modals, or modifying the theme/bundle system.
 ---
 
 # bluefinctl Development
@@ -19,31 +19,97 @@ ghostty -e textual run --dev src/bluefinctl/app.py &  # hot-reload CSS
 ```
 core/          Business logic only — NO Textual imports, fully testable
 screens/       One Screen subclass per panel, thin presentation layer
-widgets/       Reusable Textual widgets (OperationModal, LogView)
-theme/         GNOME accent color reader + bluefin.tcss
+widgets/       adw.py (HIG widget library) + operation_modal.py + log_view.py
+theme/         accent.py (gsettings reader + theme builder) + bluefin.tcss
 util/          OSC escape sequences, Ghostty detection, terminal launcher
 ```
 
 **Rule:** All subprocess calls, file I/O, and system state live in `core/`. Screens only call core functions and present results.
 
-## Five screens (new architecture)
+## Five screens
 
 | Key | Screen file | Core module | Notes |
 |-----|-------------|-------------|-------|
-| 1 | screens/system.py | core/system.py | bootc systems only |
-| 2 | screens/updates.py | core/updates.py | bootc systems only |
-| 3 | screens/toolkit.py | core/bundles.py | kit management |
-| 4 | screens/devmode.py | core/devmode.py | 3 tabs: Overview/Tools/Envs |
+| 1 | screens/system.py | core/system.py | AdwPropertyRow cards, AdwButtonRow actions |
+| 2 | screens/updates.py | core/updates.py | AdwSwitchRow / AdwComboRow / AdwButtonRow |
+| 3 | screens/toolkit.py | core/bundles.py | ListView + scrollable detail pane |
+| 4 | screens/devmode.py | core/devmode.py | 3 tabs: Overview/Tools/Environments |
 | 5 | screens/ai.py | core/ai.py | 2 tabs: Stacks/Tools |
 
-On non-bootc systems, System + Updates are hidden; Toolkit becomes screen 1.
+All screens are always shown. Non-bootc systems see degraded content in-place, not hidden screens.
 
-## Platform detection
+## ADW widget library — `widgets/adw.py`
+
+All screens use GNOME HIG-compliant widgets. **Never use raw `Static` + borders for layout.**
 
 ```python
-from bluefinctl.app import _is_bootc_system
-# Checks /run/ostree-booted or bootc status exit code
+from bluefinctl.widgets.adw import (
+    AdwPreferencesGroup,  # bordered group: title ABOVE box, rows inside
+    AdwActionRow,         # title+subtitle left, trailing widget right
+    AdwSwitchRow,         # fires AdwSwitchRow.Changed(row, value)
+    AdwComboRow,          # cycling value label, fires AdwComboRow.Changed
+    AdwButtonRow,         # full-width row, fires AdwButtonRow.Pressed
+    AdwPropertyRow,       # read-only key: value display
+    AdwExpanderRow,       # collapsible row
+)
+
+# Typical screen compose():
+yield AdwPreferencesGroup(
+    "Update Layers",
+    AdwSwitchRow("OS Image", subtitle="Include bootc image updates", id="layer-os"),
+    AdwSwitchRow("Flatpaks", subtitle="Include Flatpak app updates", id="layer-flatpak"),
+)
+yield AdwPreferencesGroup(
+    "Actions",
+    AdwButtonRow("Update Now", variant="primary", id="btn-update"),
+)
+
+# Screen event handlers:
+def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
+    if event.row.id == "layer-os":
+        ...  # event.value is bool
+
+def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
+    if event.row.id == "btn-update":
+        self.run_worker(self._do_update())
+
+# Programmatic value setting — never triggers Changed events:
+self.query_one("#layer-os", AdwSwitchRow).set_value(True)
+self.query_one("#strategy", AdwComboRow).set_value("Automatic")
+self.query_one("#channel", AdwPropertyRow).update_value("stable")
 ```
+
+## Content area convention
+
+Every screen uses `ScrollableContainer(id="adw-content")` as the scrollable main area:
+
+```python
+def compose(self) -> ComposeResult:
+    yield Sidebar(active="myscreen")
+    with ScrollableContainer(id="adw-content"):
+        yield AdwPreferencesGroup("Group 1", ...)
+        yield AdwPreferencesGroup("Group 2", ...)
+```
+
+`#adw-content` CSS is in `bluefin.tcss` (width 1fr, height 1fr, overflow-y auto, padding 1 2).
+
+## Theme system — live dark/light
+
+The app follows GNOME `color-scheme` live via `gsettings monitor`:
+
+```python
+from bluefinctl.theme.accent import build_theme, get_color_scheme, get_accent_color
+
+# Build theme for current system settings:
+theme = build_theme(get_color_scheme(), get_accent_color())
+# → "bluefin-dark" or "bluefin-light", exact GNOME HIG palette
+```
+
+`app.py` starts `_watch_system_theme()` which hot-switches `app.theme` on any
+`color-scheme` or `accent-color` gsettings change.
+
+**Critical:** Never hardcode `$background`, `$surface`, etc. in TCSS. They resolve from
+the active Theme. Hardcoding breaks dark/light switching.
 
 ## Unified progress system
 
@@ -53,7 +119,6 @@ Every operation uses `OperationModal` (widgets/operation_modal.py):
 from bluefinctl.core.progress import BrewInstallParser
 from bluefinctl.widgets.operation_modal import OperationModal
 
-# Subprocess with progress parsing
 rc = await self.app.push_screen_wait(
     OperationModal(
         "Installing Kit",
@@ -65,7 +130,6 @@ rc = await self.app.push_screen_wait(
 # Async generator workflow
 async def my_steps():
     yield ProgressUpdate(percent=0, step=1, total_steps=3, message="Step 1")
-    # ... do work
     yield ProgressUpdate(percent=100, message="Done")
 
 rc = await self.app.push_screen_wait(
@@ -73,91 +137,31 @@ rc = await self.app.push_screen_wait(
 )
 ```
 
-Available parsers:
-- `MultiStepParser(total_steps=N)` — wizard flows
-- `PodmanPullParser()` — layer download percentages
-- `BrewInstallParser(total_packages=N)` — formula install counting
-- `BootcSwitchParser()` — bootc stage detection
-- `IndeterminateParser()` — fallback (no percentage)
-
-## Resumable operations (core/operations.py)
-
-For operations that need reboot/logout:
-
-```python
-from bluefinctl.core.operations import Operation, OperationState, save_operation
-
-op = Operation(id="lima-setup-1", kind="lima-setup", steps_total=5)
-op.transition(OperationState.EXECUTING, "Installing Lima...")
-save_operation(op)
-# ... later, if reboot needed:
-op.transition(OperationState.NEEDS_RELOGIN, "Log out to apply groups")
-save_operation(op)
-```
-
 ## Reusable modals (screens/_modals.py)
 
-Use `push_screen_wait()` for every destructive or long-running action:
-
 ```python
-# Confirmation
-confirmed = await self.app.push_screen_wait(
-    ConfirmModal("Title", "Are you sure?")
-)
-
-# Text input
-value = await self.app.push_screen_wait(
-    InputModal("Add Package", "Package name", placeholder="e.g. htop")
-)
-
-# Streaming subprocess (legacy — prefer OperationModal for new code)
-rc = await self.app.push_screen_wait(
-    OperationLogModal("Install", ["brew", "install", "htop"])
-)
+confirmed = await self.app.push_screen_wait(ConfirmModal("Title", "Are you sure?"))
+value = await self.app.push_screen_wait(InputModal("Add", "Name", placeholder="e.g. htop"))
+rc = await self.app.push_screen_wait(OperationLogModal("Install", ["brew", "install", "htop"]))
 ```
 
 ## Adding a new screen
 
-1. Create `screens/myscreen.py` with a `MyScreen(Screen[None])` class
-2. Add a `Sidebar("myscreen")` in its `compose()`
-3. Register in `app.py` `on_mount`
-4. Add to NAV_ITEMS in `screens/_sidebar.py`
-5. Add a `Binding` in `app.py`
-
-## OSC 9;4 progress (Ghostty tab bar)
-
-Always write to `/dev/tty` — NOT `sys.stdout` (Textual owns stdout).
-`OperationModal` handles this automatically.
-
-## GNOME accent color
-
-Read once at startup, injected into Textual Theme. Changing accent in GNOME requires a restart.
-
-## Programmatic widget init — use `prevent()`, not a loading flag
-
-```python
-with self.prevent(Switch.Changed):
-    self.query_one("#layer-os", Switch).value = os_on
-
-with self.prevent(RadioSet.Changed):
-    buttons[idx].value = True
-```
-
-## Headless CLI
-
-Every TUI action has a headless equivalent via `cli.py`:
-- `bluefinctl status` — system info
-- `bluefinctl update` — trigger update
-- `bluefinctl devmode on|off|status`
-- `bluefinctl kit list|install <name>`
-- `bluefinctl ai list|deploy|stop <stack>`
+1. Create `screens/myscreen.py` with `MyScreen(Screen[None])`
+2. `compose()` yields `Sidebar(active="myscreen")` then `ScrollableContainer(id="adw-content")`
+3. Inside the container, yield `AdwPreferencesGroup(...)` groups
+4. Register in `app.py` `on_mount`
+5. Add to `NAV_ITEMS` in `screens/_sidebar.py`
+6. Add a `Binding` in `app.py`
 
 ## Common pitfalls
 
 - **Worker race**: always init mutable attrs in `__init__`, not just at end of worker
 - **Console() in core**: never use rich Console inside Textual — use `self.notify()`
 - **pkexec hangs**: polkit auth dialog appears in a separate GTK window — don't add timeouts
-- **Tree refresh**: `tree.root.remove_children()` then re-run worker with `exclusive=True`
-- **bootc switch**: positional target, not `--target`. Use `["pkexec", "bootc", "switch", ref]`
-- **Textual CSS**: `vh`/`vw` units NOT supported. `Static` does NOT scroll (wrap in ScrollableContainer)
+- **bootc switch**: positional target — `["pkexec", "bootc", "switch", ref]` not `--target`
+- **Textual CSS**: `vh`/`vw` NOT supported; `Static` does NOT scroll (wrap in ScrollableContainer)
 - **asyncio**: use `get_running_loop()` not `get_event_loop()` in async functions
+- **CSS color vars**: never define `$background`/`$surface`/etc. in TCSS — they break theme switching
+- **lru_cache + live updates**: call `.cache_clear()` before re-reading a changed gsettings value
+- **ADW `id` arg**: `A002` (shadowing builtin) is suppressed in `pyproject.toml` — it's standard Textual API
