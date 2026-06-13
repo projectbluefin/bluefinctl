@@ -203,6 +203,91 @@ async def install_missing_dev_tools_steps() -> AsyncGenerator[ProgressUpdate, No
         yield update
 
 
+async def lima_setup_steps() -> AsyncGenerator[ProgressUpdate, None]:
+    """Set up Lima VM — KVM preflight, install lima, start default VM, verify."""
+    total = 4
+
+    # ── Step 1: KVM preflight ──────────────────────────────────────────────
+    yield ProgressUpdate(percent=5, step=1, total_steps=total, message="Checking KVM support…")
+    if os.path.exists("/dev/kvm"):
+        yield ProgressUpdate(percent=10, message="✓ /dev/kvm present")
+    else:
+        username = os.environ.get("USER", "")
+        yield ProgressUpdate(percent=8, message="/dev/kvm not found — adding user to kvm group…")
+        proc = await asyncio.create_subprocess_exec(
+            "pkexec", "usermod", "-aG", "kvm", username,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode == 0:
+            yield ProgressUpdate(
+                percent=12,
+                message="Added to kvm group — log out and back in for KVM acceleration",
+            )
+        else:
+            yield ProgressUpdate(
+                percent=12,
+                message="⚠ Could not add to kvm group — Lima will use QEMU SLIRP",
+            )
+
+    # ── Step 2: Install Lima ────────────────────────────────────────────
+    yield ProgressUpdate(percent=20, step=2, total_steps=total, message="Installing Lima…")
+    if shutil.which("limactl"):
+        yield ProgressUpdate(percent=40, message="✓ Lima already installed")
+    else:
+        parser = BrewInstallParser(total_packages=1)
+        proc = await asyncio.create_subprocess_exec(
+            "brew", "install", "lima",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        if proc.stdout:
+            async for raw_line in proc.stdout:
+                line = raw_line.decode(errors="replace").rstrip()
+                update = parser.parse_line(line)
+                yield update or ProgressUpdate(message=line)
+        rc = await proc.wait()
+        if rc != 0:
+            raise RuntimeError(f"brew install lima failed (exit {rc})")
+        yield ProgressUpdate(percent=45, message="✓ Lima installed")
+
+    # ── Step 3: Start default VM ───────────────────────────────────────
+    yield ProgressUpdate(percent=50, step=3, total_steps=total, message="Starting default Lima VM…")
+    proc = await asyncio.create_subprocess_exec(
+        "limactl", "start",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw_line in proc.stdout:
+            line = raw_line.decode(errors="replace").rstrip()
+            if line:
+                yield ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        # Non-zero can mean the VM is already running — proceed to verify
+        yield ProgressUpdate(percent=80, message="VM may already be running — verifying…")
+
+    # ── Step 4: Verify ──────────────────────────────────────────────────
+    yield ProgressUpdate(percent=90, step=4, total_steps=total, message="Verifying Lima VM…")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "limactl", "list", "--format", "{{.Name}} {{.Status}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            vms = [v for v in stdout.decode().strip().splitlines() if v.strip()]
+            if vms:
+                yield ProgressUpdate(percent=100, message=f"✓ {len(vms)} VM(s) ready — {vms[0]}")
+                return
+        raise RuntimeError("No VMs found after setup")
+    except FileNotFoundError as exc:
+        raise RuntimeError("limactl not found after install") from exc
+
+
 async def enable_devmode() -> bool:
     """Enable developer mode — add groups and install dev tools."""
     console = Console()

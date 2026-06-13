@@ -17,7 +17,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, ListItem, ListView, Static
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.screens._viewswitcher import ViewSwitcher
 
 
 class KitDetailPane(Vertical):
@@ -27,7 +27,7 @@ class KitDetailPane(Vertical):
     KitDetailPane {
         width: 1fr;
         height: 1fr;
-        padding: 1 2;
+        padding: 0 1;
         border-left: solid $border;
     }
     #kit-detail-title { text-style: bold; color: $accent; }
@@ -98,8 +98,8 @@ class ToolkitScreen(Screen[None]):
     ]
 
     DEFAULT_CSS = """
-    ToolkitScreen { layout: horizontal; }
-    #toolkit-main  { width: 1fr; height: 1fr; padding: 1 1; }
+    ToolkitScreen { layout: vertical; }
+    #toolkit-main  { width: 1fr; height: 1fr; padding: 0 1; }
     #toolkit-cols  { height: 1fr; }
     #kit-list-container { width: 42; height: 1fr; }
     #kit-list-header {
@@ -116,7 +116,7 @@ class ToolkitScreen(Screen[None]):
         self._installed: set[str] = set()
 
     def compose(self) -> ComposeResult:
-        yield Sidebar(active="toolkit")
+        yield ViewSwitcher("toolkit")
         with Vertical(id="toolkit-main"):
             with Horizontal(id="toolkit-cols"):
                 with Vertical(id="kit-list-container"):

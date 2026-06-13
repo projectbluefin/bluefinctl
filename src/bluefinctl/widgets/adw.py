@@ -102,7 +102,7 @@ class AdwActionRow(Horizontal):
     DEFAULT_CSS = """
     AdwActionRow {
         height: auto;
-        min-height: 3;
+        min-height: 2;
         background: $surface;
         padding: 0 1;
         align: left middle;
@@ -112,13 +112,13 @@ class AdwActionRow(Horizontal):
     AdwActionRow > .adw-row-content {
         width: 1fr;
         height: auto;
-        min-height: 3;
+        min-height: 2;
         content-align: left middle;
-        padding: 1 0;
+        padding: 0;
     }
     AdwActionRow > .adw-row-trailing {
         width: auto;
-        min-height: 3;
+        min-height: 2;
         content-align: right middle;
         align: right middle;
         padding: 0 0;
@@ -188,7 +188,7 @@ class AdwSwitchRow(Horizontal):
     DEFAULT_CSS = """
     AdwSwitchRow {
         height: auto;
-        min-height: 3;
+        min-height: 2;
         background: $surface;
         padding: 0 1;
         align: left middle;
@@ -197,13 +197,13 @@ class AdwSwitchRow(Horizontal):
     AdwSwitchRow > .adw-row-content {
         width: 1fr;
         height: auto;
-        min-height: 3;
+        min-height: 2;
         content-align: left middle;
-        padding: 1 0;
+        padding: 0;
     }
     AdwSwitchRow > .adw-row-trailing {
         width: auto;
-        min-height: 3;
+        min-height: 2;
         align: right middle;
         content-align: right middle;
     }
@@ -284,7 +284,7 @@ class AdwComboRow(Horizontal):
     DEFAULT_CSS = """
     AdwComboRow {
         height: auto;
-        min-height: 3;
+        min-height: 2;
         background: $surface;
         padding: 0 1;
         align: left middle;
@@ -293,13 +293,13 @@ class AdwComboRow(Horizontal):
     AdwComboRow > .adw-row-content {
         width: 1fr;
         height: auto;
-        min-height: 3;
+        min-height: 2;
         content-align: left middle;
-        padding: 1 0;
+        padding: 0;
     }
     AdwComboRow > .adw-row-trailing {
         width: auto;
-        min-height: 3;
+        min-height: 2;
         align: right middle;
         content-align: right middle;
     }
@@ -396,7 +396,7 @@ class AdwButtonRow(Widget):
 
     DEFAULT_CSS = """
     AdwButtonRow {
-        height: 3;
+        height: 1;
         background: $surface;
         padding: 0 1;
         content-align: center middle;
@@ -443,7 +443,7 @@ class AdwPropertyRow(Horizontal):
 
     DEFAULT_CSS = """
     AdwPropertyRow {
-        height: 3;
+        height: 1;
         background: $surface;
         padding: 0 1;
         align: left middle;
@@ -497,7 +497,7 @@ class AdwExpanderRow(Horizontal):
     DEFAULT_CSS = """
     AdwExpanderRow {
         height: auto;
-        min-height: 3;
+        min-height: 2;
         background: $surface;
         padding: 0 1;
         align: left middle;
@@ -506,13 +506,13 @@ class AdwExpanderRow(Horizontal):
     AdwExpanderRow > .adw-row-content {
         width: 1fr;
         height: auto;
-        min-height: 3;
+        min-height: 2;
         content-align: left middle;
-        padding: 1 0;
+        padding: 0;
     }
     AdwExpanderRow > .adw-row-trailing {
         width: 3;
-        min-height: 3;
+        min-height: 2;
         align: right middle;
         content-align: right middle;
     }

@@ -21,7 +21,7 @@ from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import (
     AdwButtonRow,
     AdwPreferencesGroup,
@@ -32,7 +32,7 @@ from bluefinctl.widgets.adw import (
 class OverviewTab(Static):
     """DevMode Overview — status card, runtime health, quick actions."""
 
-    DEFAULT_CSS = "OverviewTab { height: auto; padding: 1 0; }"
+    DEFAULT_CSS = "OverviewTab { height: auto; }"
 
     def compose(self) -> ComposeResult:
         yield AdwPreferencesGroup(
@@ -120,7 +120,7 @@ class ToolsTab(Static):
     """DevMode Tools — interactive dev tool list with install status."""
 
     DEFAULT_CSS = """
-    ToolsTab { height: 1fr; padding: 1 0; }
+    ToolsTab { height: 1fr; }
     #tools-list { height: 1fr; }
     """
 
@@ -171,7 +171,7 @@ class ToolsTab(Static):
 class EnvironmentsTab(Static):
     """DevMode Environments — Podman, Distrobox, Lima."""
 
-    DEFAULT_CSS = "EnvironmentsTab { height: auto; padding: 1 0; }"
+    DEFAULT_CSS = "EnvironmentsTab { height: auto; }"
 
     def compose(self) -> ComposeResult:
         yield AdwPreferencesGroup(
@@ -232,6 +232,10 @@ class EnvironmentsTab(Static):
         except FileNotFoundError:
             self.query_one("#env-lima", AdwPropertyRow).update_value("— not installed")
 
+    def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
+        if event.row.id == "btn-lima-setup":
+            self.app.call_later(self.screen.action_lima_setup)  # type: ignore[attr-defined]
+
 
 class DevModeScreen(Screen[None]):
     """Developer mode screen — tools, environments, Lima."""
@@ -243,8 +247,8 @@ class DevModeScreen(Screen[None]):
     ]
 
     DEFAULT_CSS = """
-    DevModeScreen { layout: horizontal; }
-    #devmode-content { width: 1fr; height: 1fr; padding: 1 2; }
+    DevModeScreen { layout: vertical; }
+    #devmode-content { width: 1fr; height: 1fr; padding: 0 1; }
     """
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
@@ -256,7 +260,7 @@ class DevModeScreen(Screen[None]):
         return None
 
     def compose(self) -> ComposeResult:
-        yield Sidebar(active="devmode")
+        yield ViewSwitcher("devmode")
         with ScrollableContainer(id="devmode-content"):
             with TabbedContent():
                 with TabPane("Overview", id="tab-overview"):
@@ -364,4 +368,18 @@ class DevModeScreen(Screen[None]):
                 self.query_one(ToolsTab).refresh_tools()
             else:
                 self.notify("Failed to install dev tools", severity="error", title="DevMode")
+
+    async def action_lima_setup(self) -> None:
+        from bluefinctl.core.devmode import lima_setup_steps
+        from bluefinctl.widgets.operation_modal import OperationModal
+        rc = await self.app.push_screen_wait(
+            OperationModal("Set Up Lima VM", steps=lima_setup_steps())
+        )
+        if rc == 0:
+            self.notify("Lima VM is ready", title="Lima")
+        else:
+            self.notify("Lima setup failed — see log for details", severity="error", title="Lima")
+        # Refresh the Environments tab either way
+        envs = self.query_one(EnvironmentsTab)
+        envs.run_worker(envs._load(), exclusive=True)
 

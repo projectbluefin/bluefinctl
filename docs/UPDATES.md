@@ -14,17 +14,9 @@
         ▼              ▼              ▼              ▼
 ┌───────────────┐ ┌─────────────┐ ┌──────────┐ ┌──────────────┐
 │ systemctl     │ │ /etc/uupd/  │ │ systemctl│ │ bootc switch │
-│ enable/disable│ │ config.json │ │ mask/    │ │ --target     │
+│ enable/disable│ │ config.json │ │ mask/    │ │              │
 │ uupd.timer    │ │ modules.*   │ │ unmask   │ │              │
 └───────────────┘ └─────────────┘ └──────────┘ └──────────────┘
-        │              │              │              │
-        └──────────────┴──────────────┴──────────────┘
-                              │
-                              ▼
-                    ┌──────────────────┐
-                    │       uupd       │
-                    │  (update daemon) │
-                    └──────────────────┘
 ```
 
 ## Configuration Targets
@@ -36,22 +28,20 @@
 | Automatic | `enabled + active` | uupd runs on schedule |
 | Notify | `enabled + active` | uupd runs but only stages |
 | Manual | `disabled + inactive` | Nothing runs until user triggers |
-| Scheduled | `enabled + active` with drop-in | Runs in specific window |
 
-Commands:
 ```bash
 # Enable automatic
-systemctl enable --now uupd.timer
+pkexec systemctl enable --now uupd.timer
 
 # Disable (manual)
-systemctl disable --now uupd.timer
+pkexec systemctl disable --now uupd.timer
 
 # Focus mode (temporary disable)
-systemctl mask uupd.timer
+pkexec systemctl mask uupd.timer
 
 # Release focus mode
-systemctl unmask uupd.timer
-systemctl enable --now uupd.timer
+pkexec systemctl unmask uupd.timer
+pkexec systemctl enable --now uupd.timer
 ```
 
 ### 2. uupd Config (`/etc/uupd/config.json`)
@@ -59,87 +49,43 @@ systemctl enable --now uupd.timer
 ```json
 {
   "modules": {
-    "bootc": {
-      "disable": false
-    },
-    "flatpak": {
-      "disable": false
-    },
-    "brew": {
-      "disable": false
-    }
-  },
-  "checks": {
-    "hardware": {
-      "cpu_max_percent": 50,
-      "memory_min_available_mb": 1024,
-      "battery_min_percent": 20
-    }
+    "bootc":   { "disable": false },
+    "flatpak": { "disable": false },
+    "brew":    { "disable": false }
   }
 }
 ```
 
-bluefinctl reads this, presents it in the UI, and writes back changes via pkexec.
+bluefinctl reads this, presents it as AdwSwitchRow toggles, and writes back via `pkexec tee`.
 
-### 3. Schedule Drop-in
-
-When strategy is "Scheduled", write:
-```ini
-# /etc/systemd/system/uupd.timer.d/bluefinctl-schedule.conf
-[Timer]
-OnCalendar=
-OnCalendar=*-*-* 02:00:00
-RandomizedDelaySec=1h
-```
-
-Predefined schedules:
-- **Night Owl** — 2-5 AM
-- **Early Bird** — 5-7 AM
-- **Lunch Break** — 12-1 PM
-- **Custom** — user picks time
-
-### 4. Channel (`bootc switch`)
+### 3. Channel (`bootc switch`)
 
 ```bash
 # Switch to testing
-bootc switch --target ghcr.io/projectbluefin/bluefin:testing
+pkexec bootc switch ghcr.io/projectbluefin/bluefin:testing
 
 # Switch back to stable
-bootc switch --target ghcr.io/projectbluefin/bluefin:latest
-
-# Pin to specific build
-bootc switch --target ghcr.io/projectbluefin/bluefin:41-20240601
+pkexec bootc switch ghcr.io/projectbluefin/bluefin:latest
 ```
 
-All require reboot to take effect. The UI must make this clear.
+All require reboot to take effect. bluefinctl confirms before switching.
 
 ---
 
-## Focus Mode — Implementation
+## Focus Mode
 
-Focus mode is the "do not disturb" for system updates.
+Focus mode is the "do not disturb" for system updates — masks `uupd.timer` entirely.
 
-### State Machine
+### State
 
-```
-         activate
-Normal ──────────► Focus Active
-  ▲                    │
-  │                    │ (expiry OR manual deactivate)
-  └────────────────────┘
-         deactivate
-```
-
-### Storage
-
-Focus mode state lives in `~/.config/bluefinctl/state.json`:
+Persisted to `~/.config/bluefinctl/state.json`:
 ```json
 {
   "focus_mode": {
     "active": true,
-    "activated_at": "2024-06-13T10:00:00Z",
-    "expires_at": "2024-06-13T22:00:00Z",
-    "reason": "Training run"
+    "activated_at": "2024-06-13T10:00:00",
+    "expires_at": "2024-06-13T22:00:00",
+    "reason": ""
   }
 }
 ```
@@ -147,115 +93,16 @@ Focus mode state lives in `~/.config/bluefinctl/state.json`:
 ### Activation
 
 ```python
-async def activate_focus(duration_hours: int | None = None, reason: str = ""):
-    # 1. Mask the timer
-    await run("systemctl", "mask", "uupd.timer")
-    
-    # 2. Record state
-    state.focus_mode = FocusState(
-        active=True,
-        activated_at=now(),
-        expires_at=now() + timedelta(hours=duration_hours) if duration_hours else None,
-        reason=reason,
-    )
-    
-    # 3. If duration set, schedule unmask
-    if duration_hours:
-        await schedule_unmask(state.focus_mode.expires_at)
+# Indefinite (toggle switch ON)
+await activate_focus_mode()
+
+# Timed (snooze buttons)
+await activate_focus_mode(duration_hours=1)        # Snooze 1 hour
+await activate_focus_mode(duration_hours=N)        # Snooze until tonight (hours until 22:00)
+await activate_focus_mode(duration_hours=M)        # Snooze until tomorrow (hours until 08:00 next day)
 ```
 
-### Expiry
-
-Use a systemd user timer:
-```ini
-# ~/.config/systemd/user/bluefinctl-focus-expire.timer
-[Timer]
-OnCalendar=2024-06-13 22:00:00
-Persistent=false
-
-[Install]
-WantedBy=timers.target
-```
-
-```ini
-# ~/.config/systemd/user/bluefinctl-focus-expire.service
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/systemctl unmask uupd.timer
-ExecStart=/usr/bin/systemctl start uupd.timer
-ExecStartPost=rm ~/.config/bluefinctl/focus-lock
-```
-
-### 7-Day Nag
-
-If focus mode has been active > 7 days, bluefinctl shows a persistent warning:
-```
-⚠ Focus mode active for 8 days — your system hasn't updated since June 5.
-  [Deactivate] [Snooze reminder]
-```
-
----
-
-## Deferral (Snooze)
-
-Different from Focus Mode. Snooze is for when an update notification arrives and the user says "not now."
-
-| Snooze | Implementation |
-|--------|---------------|
-| 1 hour | mask timer + one-shot unmask in 1h |
-| Tonight | mask timer + unmask at 2 AM |
-| Tomorrow | mask timer + unmask in 24h |
-| Skip version | Add target image ref to skip-list |
-
-### Skip List
-
-```json
-// ~/.config/bluefinctl/state.json
-{
-  "skipped_versions": [
-    "ghcr.io/projectbluefin/bluefin@sha256:abc123..."
-  ]
-}
-```
-
-When uupd stages an update and bluefinctl sees it matches a skipped version, it doesn't notify. On the *next* new version, the skip list is cleared.
-
----
-
-## Health Checks
-
-Run automatically on first login after a new deployment boots.
-
-```python
-HEALTH_CHECKS = [
-    HealthCheck(
-        name="GPU Driver",
-        command=["nvidia-smi"] if nvidia else ["rocm-smi"],
-        pass_exit_code=0,
-        severity="critical",
-    ),
-    HealthCheck(
-        name="System Services",
-        command=["systemctl", "is-system-running"],
-        pass_output=["running", "degraded"],
-        severity="warning",
-    ),
-    HealthCheck(
-        name="Homebrew",
-        command=["brew", "doctor"],
-        pass_exit_code=0,
-        severity="info",
-    ),
-    HealthCheck(
-        name="Flatpak",
-        command=["flatpak", "list", "--app"],
-        pass_exit_code=0,
-        severity="info",
-    ),
-]
-```
-
-Results displayed on dashboard. Critical failures get a toast notification on TUI launch.
+`activate_focus_mode` masks the timer and writes expiry to state.json. Deactivation unmasks and re-enables. The `expires_at` field is informational — expiry is NOT enforced by a background daemon; it is checked on next app launch.
 
 ---
 
@@ -266,38 +113,39 @@ Read deployments from `bootc status --json`:
 ```json
 {
   "status": {
-    "booted": {
-      "image": "ghcr.io/projectbluefin/bluefin:41-stable",
-      "version": "41.20240610"
-    },
-    "rollback": {
-      "image": "ghcr.io/projectbluefin/bluefin:41-stable",
-      "version": "41.20240603"
-    }
+    "booted":   { "image": { "image": { "image": "ghcr.io/projectbluefin/bluefin:latest" } } },
+    "rollback": { "image": { "image": { "image": "ghcr.io/projectbluefin/bluefin:latest" } } }
   }
 }
 ```
 
-UI shows:
-```
-Current:  41.20240610 (booted 2h ago)
-Previous: 41.20240603 [← Rollback]
-```
+UI shows current and previous image refs. Rollback disabled when no previous deployment is present.
 
-Rollback action: `pkexec bootc rollback` → prompts reboot.
+Rollback action: `pkexec bootc rollback` → confirmation modal → OperationLogModal.
+
+---
+
+## Health Checks
+
+Displayed on System screen via `core/system.py`:
+
+| Check | Command |
+|-------|---------|
+| GPU Driver | `nvidia-smi` (NVIDIA) or `rocm-smi` (AMD) |
+| System Services | `systemctl is-system-running` |
+| Homebrew | `brew doctor` |
+
+Results are shown as `AdwPropertyRow` values in the Health group.
 
 ---
 
 ## Privilege Model
 
-| Operation | Privilege | Mechanism |
-|-----------|-----------|-----------|
-| Read uupd config | root | `pkexec cat /etc/uupd/config.json` |
-| Write uupd config | root | `pkexec tee /etc/uupd/config.json` |
-| Timer enable/disable | root | `pkexec systemctl ...` |
-| bootc switch/rollback | root | `pkexec bootc ...` |
-| Focus mode state | user | `~/.config/bluefinctl/state.json` |
-| Brew operations | user | No elevation needed |
-| Read bootc status | user | `bootc status` (unprivileged) |
-
-bluefinctl prompts for auth only when writing to system config. Read operations are always unprivileged where possible.
+| Operation | Mechanism |
+|-----------|-----------|
+| Write uupd config | `pkexec tee /etc/uupd/config.json` |
+| Timer enable/disable/mask | `pkexec systemctl ...` |
+| bootc switch/rollback | `pkexec bootc ...` |
+| Focus mode state | `~/.config/bluefinctl/state.json` (user-writable) |
+| Brew operations | No elevation needed |
+| Read bootc status | `bootc status` (unprivileged) |

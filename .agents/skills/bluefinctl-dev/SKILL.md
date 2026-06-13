@@ -31,12 +31,12 @@ util/          OSC escape sequences, Ghostty detection, terminal launcher
 | Key | Screen file | Core module | Notes |
 |-----|-------------|-------------|-------|
 | 1 | screens/system.py | core/system.py | AdwPropertyRow cards, AdwButtonRow actions |
-| 2 | screens/updates.py | core/updates.py | AdwSwitchRow / AdwComboRow / AdwButtonRow |
+| 2 | screens/updates.py | core/updates.py | AdwSwitchRow / AdwComboRow / AdwButtonRow; snooze buttons; ChangelogViewer |
 | 3 | screens/toolkit.py | core/bundles.py | ListView + scrollable detail pane |
-| 4 | screens/devmode.py | core/devmode.py | 3 tabs: Overview/Tools/Environments |
+| 4 | screens/devmode.py | core/devmode.py | 3 tabs: Overview/Tools/Environments; Lima wizard |
 | 5 | screens/ai.py | core/ai.py | 2 tabs: Stacks/Tools |
 
-All screens are always shown. Non-bootc systems see degraded content in-place, not hidden screens.
+All screens use `layout: vertical`. `ViewSwitcher` sits at the top; content fills the rest.
 
 ## ADW widget library — `widgets/adw.py`
 
@@ -148,11 +148,12 @@ rc = await self.app.push_screen_wait(OperationLogModal("Install", ["brew", "inst
 ## Adding a new screen
 
 1. Create `screens/myscreen.py` with `MyScreen(Screen[None])`
-2. `compose()` yields `Sidebar(active="myscreen")` then `ScrollableContainer(id="adw-content")`
-3. Inside the container, yield `AdwPreferencesGroup(...)` groups
-4. Register in `app.py` `on_mount`
-5. Add to `NAV_ITEMS` in `screens/_sidebar.py`
-6. Add a `Binding` in `app.py`
+2. `DEFAULT_CSS = "MyScreen { layout: vertical; }"`
+3. `compose()` yields `ViewSwitcher("myscreen")` then `ScrollableContainer(id="adw-content")`
+4. Inside the container, yield `AdwPreferencesGroup(...)` groups
+5. Register in `app.py` `on_mount`
+6. Add to `NAV_ITEMS` in `screens/_viewswitcher.py`
+7. Add a `Binding` in `app.py`
 
 ## Common pitfalls
 

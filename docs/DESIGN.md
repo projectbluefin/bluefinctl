@@ -67,7 +67,7 @@ src/bluefinctl/
 │   ├── toolkit.py           # Kit management — list + scrollable detail pane
 │   ├── devmode.py           # Developer experience (TabbedContent: Overview/Tools/Environments)
 │   ├── ai.py                # AI workstation (TabbedContent: Stacks/Tools)
-│   ├── _sidebar.py          # Left navigation (28 cols, clickable items, section separators)
+│   ├── _viewswitcher.py     # Horizontal top-navigation bar (libadwaita AdwViewSwitcher)
 │   └── _modals.py           # Shared modals: confirm, input, operation log, help
 ├── widgets/
 │   ├── adw.py               # GNOME HIG widget library (AdwPreferencesGroup, AdwSwitchRow, etc.)
@@ -144,21 +144,14 @@ Used by: Lima setup (KVM group), devmode enable (group changes), bootc switch/ro
 
 ### Navigation
 
-Five screens in a flat sidebar with visual group separators:
+Five screens in a horizontal `ViewSwitcher` bar at the top of every screen (libadwaita `AdwViewSwitcher` pattern):
 
 ```
- bluefinctl
-
- * [1] System
-   [2] Updates
- ──────────────
-   [3] Toolkit
- ──────────────
-   [4] DevMode
-   [5] AI
+  System   Updates   Toolkit   DevMode   AI
+ ─────────────────────────────────────────
 ```
 
-Number keys 1-5 switch screens instantly. Sidebar items are clickable. Active screen has accent-colored left border.
+Number keys 1-5 switch screens instantly. Tabs are clickable. Active tab has an accent-colored background tint.
 
 ### Platform Detection
 
@@ -201,16 +194,15 @@ Dangerous operations (channel switch, rollback) require a confirmation modal.
 **Groups:**
 
 | Group | Widgets | What it does |
-|-------|---------|--------------|
+|-------|---------|------|
 | Update Strategy | `AdwComboRow`: Automatic / Notify / Manual | Sets uupd timer policy immediately |
 | Update Layers | `AdwSwitchRow` × 3: OS Image, Flatpaks, Homebrew | Writes `/etc/uupd/config.json` via pkexec |
-| Focus Mode | `AdwSwitchRow` | Masks/unmasks uupd.timer |
+| Focus Mode | `AdwSwitchRow` + `AdwButtonRow` × 3: Snooze 1h / Tonight / Tomorrow | Masks/unmasks uupd.timer; snooze sets a timed expiry |
 | Channel | `AdwPropertyRow` (current) + `AdwButtonRow` × 2 (stable/testing/update) | `bootc switch` after confirmation |
 | Rollback | `AdwPropertyRow` (previous) + `AdwButtonRow` destructive | `bootc rollback` after confirmation |
+| Release Notes | `ChangelogViewer` | Reads `/usr/share/ublue-os/changelog.md` or fetches from image tag |
 
 **Not yet implemented:**
-- Deferral snooze (1h / Tonight / Tomorrow)
-- Changelog / release notes viewer
 - Scheduled strategy time-picker
 
 **Keybindings:** `s` stable, `t` testing, `u` update now, `R` rollback
@@ -292,33 +284,20 @@ Actions: Select tool + Enter to install. `[a]` install all missing. Tools are so
 Three-tier development environment model:
 
 ```
- Tier 1: Podman Desktop          [active]    Docker-compatible, zero VM tax
-   Status: running | socket: active
-   Action: [open] Podman Desktop
-
- Tier 2: Distrobox               [3 containers]
-   ubuntu-24.04                  [running]   Pet container
-   fedora-41                     [stopped]   Pet container
-   wolfi                         [running]   Pet container
-   Action: [n]ew container  [e]nter selected
-
- Tier 3: Lima                    [not set up]
-   WSL-equivalent Ubuntu VM — persistent, $HOME mounted, VSCode wired
-   Action: [Enter] to run guided setup
+ Tier 1: Podman Desktop          [installed / not installed]   (status only)
+ Tier 2: Distrobox               [N containers / not installed]  (status only)
+ Tier 3: Lima                    [N VM(s) / not set up]  [→ Set Up Lima VM]
 ```
 
-**Lima guided setup** (multi-step, unified progress):
+**Lima guided setup** (4-step `OperationModal` via `lima_setup_steps()` in `core/devmode.py`):
 ```
-Step 1/5: Checking KVM access...              [====] done
-Step 2/5: Installing Lima via Homebrew...     [==  ] pulling
-Step 3/5: Starting Ubuntu VM (~600 MB)...     [=   ] downloading
-Step 4/5: Wiring SSH config...                [    ] pending
-Step 5/5: Verifying connection...             [    ] pending
+Step 1/4: Checking KVM support…        check /dev/kvm; add user to kvm group via pkexec if needed
+Step 2/4: Installing Lima…             brew install lima (skipped if limactl already present)
+Step 3/4: Starting default Lima VM…    limactl start
+Step 4/4: Verifying Lima VM…           limactl list
 ```
 
-If KVM group is needed: operation enters `needs-relogin` state, notifies user, and resumes verification on next login.
-
-**Devcontainer detection:** Scans `~/src/` (configurable) for `.devcontainer/` directories. Shows projects with devcontainer support and offers "Open in VSCode" action.
+If KVM group was missing: notified to log out; Lima continues with QEMU SLIRP in the meantime.
 
 ---
 
@@ -495,7 +474,7 @@ Results always show explicit source. Never silently choose between name conflict
 
 ### Mouse
 
-- Click sidebar items — switch screen
+- Click ViewSwitcher tabs — switch screen
 - Click list/table items — select
 - Click buttons/tabs — activate
 - Scroll anywhere — scroll content
@@ -705,8 +684,8 @@ Progressive implementation order. Each phase produces a working, testable increm
 
 ### Phase 1: Foundation
 
-1. **Update `app.py`** — 5-screen registration (System, Updates, Toolkit, DevMode, AI), number-key bindings, sidebar with separators
-2. **Update `_sidebar.py`** — 5 NAV_ITEMS with visual separator support (render `──────` between groups)
+1. **Update `app.py`** — 5-screen registration (System, Updates, Toolkit, DevMode, AI), number-key bindings, terminal title via OSC 0
+2. **Create `_viewswitcher.py`** — Horizontal tab bar (libadwaita AdwViewSwitcher), accent-tinted active tab, clickable
 3. **Implement `core/operations.py`** — Resumable operation state machine (preflight/executing/needs-relogin/needs-reboot/pending-verification/complete/failed)
 4. **Implement `widgets/operation_modal.py`** — Unified OperationModal: title + step description + ProgressBar + collapsible LogView + OSC 9;4 emission
 5. **Implement `core/progress.py`** — ProgressParser protocol + MultiStepParser + indeterminate fallback
@@ -719,9 +698,9 @@ Progressive implementation order. Each phase produces a working, testable increm
 
 ### Phase 3: Updates Screen
 
-9. **Rewrite `screens/updates.py`** — Add Deferral card, Changelog card (MarkdownViewer), refine existing cards
-10. **Update `core/updates.py`** — Implement state machine (Focus > Snooze > Strategy > Per-layer), persist/restore previous strategy on Focus/Snooze toggle
-11. **Add `widgets/changelog.py`** — MarkdownViewer wrapper that fetches release notes
+9. **Rewrite `screens/updates.py`** — Focus Mode group with snooze buttons (1h/Tonight/Tomorrow), Changelog viewer at bottom
+10. **Update `core/updates.py`** — `activate_focus_mode(duration_hours=N)` for timed snooze; persist state to `~/.config/bluefinctl/state.json`
+11. **Add `widgets/changelog.py`** — Reads `/usr/share/ublue-os/changelog.md`; falls back to fetching from bootc image tag
 
 ### Phase 4: Toolkit Screen
 
@@ -734,9 +713,7 @@ Progressive implementation order. Each phase produces a working, testable increm
 
 16. **Create `screens/devmode.py`** — TabbedContent: Overview, Tools, Environments
 17. **Update `core/devmode.py`** — Add runtime health checks (Docker socket, Podman socket, Lima status), tool install state
-18. **Implement Lima guided setup** — Multi-step wizard using OperationModal: KVM preflight -> brew install lima -> start VM -> wire SSH -> verify. Handle `needs-relogin` state for KVM group
-19. **Implement Distrobox integration** — List pet containers, create/enter actions
-20. **Implement devcontainer detection** — Scan configurable paths for `.devcontainer/` directories
+18. **Implement Lima guided setup** — 4-step `OperationModal` in `lima_setup_steps()`: KVM preflight → brew install lima → limactl start → verify
 
 ### Phase 6: AI Screen
 

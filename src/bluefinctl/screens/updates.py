@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.containers import ScrollableContainer
 from textual.screen import Screen
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import (
     AdwButtonRow,
     AdwComboRow,
@@ -18,6 +18,7 @@ from bluefinctl.widgets.adw import (
     AdwPropertyRow,
     AdwSwitchRow,
 )
+from bluefinctl.widgets.changelog import ChangelogViewer
 
 
 class UpdatesScreen(Screen[None]):
@@ -30,12 +31,10 @@ class UpdatesScreen(Screen[None]):
         Binding("R", "rollback", "Rollback"),
     ]
 
-    DEFAULT_CSS = """
-    UpdatesScreen { layout: horizontal; }
-    """
+    DEFAULT_CSS = "UpdatesScreen { layout: vertical; }"
 
     def compose(self) -> ComposeResult:
-        yield Sidebar(active="updates")
+        yield ViewSwitcher("updates")
         with ScrollableContainer(id="adw-content"):
             yield AdwPreferencesGroup(
                 "Update Strategy",
@@ -72,6 +71,9 @@ class UpdatesScreen(Screen[None]):
                     subtitle="Pause all updates (demos, deep work, training runs)",
                     id="focus-switch",
                 ),
+                AdwButtonRow("Snooze 1 hour", id="btn-snooze-1h"),
+                AdwButtonRow("Snooze until tonight", id="btn-snooze-tonight"),
+                AdwButtonRow("Snooze until tomorrow", id="btn-snooze-tomorrow"),
             )
             yield AdwPreferencesGroup(
                 "Channel",
@@ -87,6 +89,7 @@ class UpdatesScreen(Screen[None]):
                     "Roll Back to Previous", variant="destructive", id="btn-rollback"
                 ),
             )
+            yield ChangelogViewer()
 
     def on_mount(self) -> None:
         self.run_worker(self._load(), exclusive=True)
@@ -210,6 +213,36 @@ class UpdatesScreen(Screen[None]):
             self.run_worker(self.action_update_now())
         elif btn_id == "btn-rollback":
             self.run_worker(self.action_rollback())
+        elif btn_id == "btn-snooze-1h":
+            self.run_worker(self._snooze(1, "for 1 hour"), exclusive=True)
+        elif btn_id == "btn-snooze-tonight":
+            hours = self._hours_until_tonight()
+            self.run_worker(self._snooze(hours, "until tonight"), exclusive=True)
+        elif btn_id == "btn-snooze-tomorrow":
+            hours = self._hours_until_tomorrow()
+            self.run_worker(self._snooze(hours, "until tomorrow morning"), exclusive=True)
+
+    async def _snooze(self, hours: int, label: str) -> None:
+        from bluefinctl.core.updates import activate_focus_mode
+        await activate_focus_mode(duration_hours=hours)
+        self.query_one("#focus-switch", AdwSwitchRow).set_value(True)
+        self.notify(f"Updates snoozed {label}", title="Focus Mode")
+
+    @staticmethod
+    def _hours_until_tonight() -> int:
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        target = now.replace(hour=22, minute=0, second=0, microsecond=0)
+        if now.hour >= 22:
+            target = (now + timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
+        return max(1, int((target - now).total_seconds() / 3600))
+
+    @staticmethod
+    def _hours_until_tomorrow() -> int:
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        target = (now + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+        return max(1, int((target - now).total_seconds() / 3600))
 
     async def action_channel_stable(self) -> None:
         await self._switch_channel("stable")

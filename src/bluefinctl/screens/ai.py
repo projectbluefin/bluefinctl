@@ -22,7 +22,7 @@ from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import AdwPreferencesGroup, AdwPropertyRow
 
 
@@ -63,7 +63,7 @@ class StacksTab(Static):
     """Stacks tab — catalog with deploy/stop actions."""
 
     DEFAULT_CSS = """
-    StacksTab { height: 1fr; padding: 1 0; }
+    StacksTab { height: 1fr; }
     #stack-list-container {
         height: 1fr;
     }
@@ -73,7 +73,7 @@ class StacksTab(Static):
     #stack-detail {
         width: 1fr;
         height: 1fr;
-        padding: 0 2;
+        padding: 0 1;
         border-left: solid $border;
     }
     #stack-detail-title {
@@ -184,7 +184,7 @@ class ToolsTab(Static):
     """AI Tools tab — interactive tool inventory."""
 
     DEFAULT_CSS = """
-    ToolsTab { height: 1fr; padding: 1 0; }
+    ToolsTab { height: 1fr; }
     #ai-tools-list { height: 1fr; }
     """
 
@@ -252,12 +252,12 @@ class AIScreen(Screen[None]):
 
     DEFAULT_CSS = """
     AIScreen {
-        layout: horizontal;
+        layout: vertical;
     }
     #ai-content {
         width: 1fr;
         height: 1fr;
-        padding: 1 2;
+        padding: 0 1;
     }
     """
 
@@ -271,7 +271,7 @@ class AIScreen(Screen[None]):
         return None
 
     def compose(self) -> ComposeResult:
-        yield Sidebar(active="ai")
+        yield ViewSwitcher("ai")
         with ScrollableContainer(id="ai-content"), TabbedContent():
             with TabPane("Stacks", id="tab-stacks"):
                 yield StacksTab()

@@ -1,10 +1,8 @@
 # bluefinctl
 
-> TUI control panel for Bluefin OS — manage packages, updates, containers, and developer mode from one keyboard-driven dashboard.
+> Unified TUI control panel for Bluefin OS — system identity, updates, developer tooling, and AI workstation management from one keyboard-driven dashboard.
 
-Built on [Textual](https://textual.textualize.io/). Replaces scattered `ujust` + `gum` interactions with a persistent, themed interface that matches your GNOME accent color.
-
-![bluefinctl](docs/screenshot-placeholder.png)
+Built on [Textual](https://textual.textualize.io/). Matches your GNOME accent color live. Terminal title: **Bluefin Control Center**.
 
 ## Install
 
@@ -15,60 +13,72 @@ brew install ublue-os/tap/bluefinctl
 ## Usage
 
 ```bash
-bluefinctl              # Launch full TUI dashboard
-bluefinctl brew         # Package management
-bluefinctl update       # Trigger system update
-bluefinctl status       # System status (scriptable, no TUI)
-bluefinctl devmode      # Toggle developer mode
+bluefinctl              # Launch TUI (defaults to System screen)
+bluefinctl --screen updates   # Jump to a specific screen
+
+# Headless subcommands (no TUI)
+bluefinctl status       # System info
+bluefinctl update       # Trigger uupd now
+bluefinctl devmode on|off|status
+bluefinctl kit list|install <name>
+bluefinctl ai list|deploy <stack>|stop <stack>
 ```
+
+## Screens
+
+Navigation: horizontal tab bar at the top (libadwaita AdwViewSwitcher). Number keys **1–5** switch screens instantly.
+
+| # | Screen | What it does |
+|---|--------|-------------|
+| 1 | **System** | Image identity, GPU, health checks, quick actions |
+| 2 | **Updates** | Strategy, per-layer toggles, focus mode + snooze, channel switch, rollback, release notes |
+| 3 | **Toolkit** | Kit management — activate/deactivate Brewfile-based tool collections |
+| 4 | **DevMode** | Developer mode toggle, tool install status, Lima VM setup |
+| 5 | **AI** | GPU-accelerated stack deploy/stop/logs, AI tool inventory |
 
 ## Features
 
-- **📦 Brew Management** — Layered Brewfile system (system + user), search, add/remove, bulk upgrade with progress
-- **🔄 Update Control** — Strategy selector (auto/notify/manual/scheduled), per-layer toggles, Focus Mode for uninterrupted work
-- **🐳 Container Status** — Podman pod health, running containers, quick actions
-- **🛠️ Developer Mode** — One-toggle devmode with clear status indicator
-- **🎨 GNOME Theming** — Reads your accent color, applies it live across the entire UI
-- **📊 System Health** — GPU status, deployment info, post-update health checks
-- **⌨️ Keyboard-First** — Vim-style navigation, command palette (Ctrl+P), quick actions
+- **GNOME Theming** — reads your accent color and color-scheme, applies live across the entire UI
+- **Unified Progress** — every subprocess (brew, podman, bootc, lima) runs behind the same progress bar and collapsible log
+- **Focus Mode + Snooze** — pause all updates indefinitely or for 1h / until tonight / until tomorrow morning
+- **Channel Management** — switch stable ↔ testing with confirmation; roll back with one action
+- **Lima WSL-equivalent** — guided 4-step setup wizard (KVM preflight → install → start VM → verify)
+- **Command Palette** — `Ctrl+P` for package search (brew + flatpak), navigation, and actions
+- **Headless CLI** — every TUI action has a scriptable `bluefinctl <subcommand>` path
+- **OSC 9;4 progress** — progress appears in Ghostty/Ptyxis/iTerm2 tab/titlebar during operations
 
 ## Architecture
 
 ```
-bluefinctl reads/writes to:
-├── uupd (update daemon)         — /etc/uupd/config.json + systemd timers
-├── bootc (image updates)        — bootc status/switch/rollback
-├── Homebrew (packages)          — Brewfile layers + brew bundle
-├── Podman (containers)          — pod/container status + lifecycle
-└── GNOME (theming)              — gsettings accent-color
+src/bluefinctl/
+├── app.py          Textual App — screen registration, theme switching, Command Palette
+├── cli.py          Typer CLI entry point (headless path for every operation)
+├── core/           Business logic — NO Textual imports, fully testable
+├── screens/        One Screen subclass per panel + ViewSwitcher + modals
+├── widgets/        adw.py (HIG widget library) + operation_modal.py + changelog.py
+├── theme/          GNOME accent color reader + bluefin.tcss
+└── util/           OSC escape sequences (progress + title), Ghostty detection, terminal launcher
 ```
 
-No RPMs. No layered packages. Everything runs in userspace via Homebrew or containers.
+**Rule:** All subprocess calls, file I/O, and system state live in `core/`. Screens only call core functions and present results. Every operation has both a headless CLI path and a TUI path.
 
 ## Development
 
 ```bash
-# Clone and setup
 git clone https://github.com/projectbluefin/bluefinctl
 cd bluefinctl
 pip install -e ".[dev]"
 
-# Run in dev mode (hot-reload CSS)
-textual run --dev src/bluefinctl/app.py
-
-# Run tests
-pytest
-
-# Lint
+textual run --dev src/bluefinctl/app.py   # hot-reload CSS
+pytest                                     # 43 tests
 ruff check src/ tests/
 mypy src/
 ```
 
 ## Design
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the full architecture and screen designs.
-
-See [docs/UPDATES.md](docs/UPDATES.md) for the update management deep-dive.
+See [docs/DESIGN.md](docs/DESIGN.md) for the full architecture and screen designs.  
+See [docs/UPDATES.md](docs/UPDATES.md) for update management internals.
 
 ## License
 

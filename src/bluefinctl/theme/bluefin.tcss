@@ -27,31 +27,10 @@ Footer {
 }
 
 /* ──────────────────────────────────────────────
-   Sidebar Navigation
+   ViewSwitcher Navigation (libadwaita AdwViewSwitcher)
    ────────────────────────────────────────────── */
 
-.sidebar {
-    width: 20;
-    background: $surface;
-    border-right: thick $border;
-    padding: 1 0;
-}
-
-.sidebar--item {
-    padding: 0 2;
-    height: 3;
-    content-align: left middle;
-}
-
-.sidebar--item:hover {
-    background: $panel;
-}
-
-.sidebar--item.-active {
-    background: $accent 20%;
-    border-left: thick $accent;
-    text-style: bold;
-}
+/* Styles live in ViewSwitcherTab DEFAULT_CSS; nothing extra needed here. */
 
 /* ──────────────────────────────────────────────
    Legacy cards (kept for screens not yet migrated)
@@ -299,5 +278,5 @@ LogView {
     width: 1fr;
     height: 1fr;
     overflow-y: auto;
-    padding: 1 2;
+    padding: 0 1;
 }

@@ -1,8 +1,9 @@
 """OSC escape sequence helpers for terminal integration.
 
 Supports:
-- OSC 9;4 — Progress bar in terminal titlebar/tab (Ghostty, Ptyxis, iTerm2, WezTerm)
-- OSC 8 — Clickable hyperlinks
+- OSC 0/2 — Terminal window/tab title
+- OSC 9;4  — Progress bar in terminal titlebar/tab (Ghostty, Ptyxis, iTerm2, WezTerm)
+- OSC 8   — Clickable hyperlinks
 """
 
 from __future__ import annotations
@@ -56,6 +57,15 @@ def osc_hyperlink(url: str, text: str) -> str:
     Renders as clickable in supported terminals.
     """
     return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
+
+
+def set_terminal_title(title: str) -> None:
+    """Set the terminal window/tab title via OSC 0.
+
+    OSC 0 sets both the icon name and window title. Supported by virtually
+    all terminal emulators (Ghostty, Ptyxis, iTerm2, GNOME Terminal, etc.).
+    """
+    _write_osc(f"\033]0;{title}\007")
 
 
 def osc_notify(title: str, body: str = "") -> None:

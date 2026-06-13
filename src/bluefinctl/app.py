@@ -17,6 +17,7 @@ from textual.widgets import Footer, Header
 
 from bluefinctl.commands import ActionsProvider, NavigationProvider, PackageProvider
 from bluefinctl.theme.accent import build_theme, get_accent_color, get_color_scheme
+from bluefinctl.util.osc import set_terminal_title
 
 
 def _is_bootc_system() -> bool:
@@ -40,7 +41,7 @@ def _is_bootc_system() -> bool:
 class BluefinCtl(App[None]):
     """Bluefin OS control panel."""
 
-    TITLE = "bluefinctl"
+    TITLE = "Bluefin Control Center"
 
     CSS_PATH = "theme/bluefin.tcss"
 
@@ -86,6 +87,9 @@ class BluefinCtl(App[None]):
 
         # Apply system theme (dark or light, with correct accent)
         self._apply_system_theme()
+
+        # Set terminal window/tab title
+        set_terminal_title(self.TITLE)
 
         # Register all screens
         self.install_screen(SystemScreen(), name="system")

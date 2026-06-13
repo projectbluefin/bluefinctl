@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
 from textual.screen import Screen
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import (
     AdwButtonRow,
     AdwPreferencesGroup,
@@ -26,10 +26,10 @@ class SystemScreen(Screen[None]):
         ("c", "launch_podman_tui", "podman-tui"),
     ]
 
-    DEFAULT_CSS = "SystemScreen { layout: horizontal; }"
+    DEFAULT_CSS = "SystemScreen { layout: vertical; }"
 
     def compose(self) -> ComposeResult:
-        yield Sidebar("system")
+        yield ViewSwitcher("system")
         with ScrollableContainer(id="adw-content"):
             yield AdwPreferencesGroup(
                 "System",
