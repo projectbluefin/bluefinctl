@@ -110,10 +110,68 @@ In `app.py`, `register_theme(Theme(name="bluefin", primary=accent, accent=accent
 4. Add to `NAV_ITEMS` in `screens/_sidebar.py`
 5. Add a `Binding` in `app.py`
 
+## Programmatic widget init — use `prevent()`, not a loading flag
+
+When a load worker sets widget values (Switch, RadioButton), Textual posts `Changed` events to the queue. A `_loading` guard is defeated by the async ordering — the flag clears before the event drains. Use `prevent()` instead:
+
+```python
+# Switch batch-set — no Changed events fired
+with self.prevent(Switch.Changed):
+    self.query_one("#layer-os", Switch).value = os_on
+    self.query_one("#layer-flatpak", Switch).value = flatpak_on
+
+# RadioButton set — no RadioSet.Changed fired
+buttons = list(radio_set.query(RadioButton))
+with self.prevent(RadioSet.Changed):
+    buttons[idx].value = True
+```
+
+`RadioSet.action_select_button()` does **not exist** in Textual 1.0. Set `RadioButton.value = True` directly.
+
+## Writing to /etc/ from the TUI
+
+Files under `/etc/` require elevated privileges. Pipe JSON through `pkexec tee`:
+
+```python
+proc = await asyncio.create_subprocess_exec(
+    "pkexec", "tee", "/etc/uupd/config.json",
+    stdin=asyncio.subprocess.PIPE,
+    stdout=asyncio.subprocess.DEVNULL,  # must set DEVNULL — not omitting
+    stderr=asyncio.subprocess.DEVNULL,
+)
+await proc.communicate(json.dumps(cfg, indent=2).encode())
+if proc.returncode != 0:
+    raise RuntimeError(f"pkexec tee failed (exit {proc.returncode})")
+```
+
+`stdout=DEVNULL` is required — omitting it leaves the process hanging for a reader.
+
+## Tree nodes — store data, don't parse labels
+
+Always store structured data on tree leaf nodes. Label text is fragile to parse:
+
+```python
+# Good — store name directly
+pod_node.add_leaf(f"  {icon} {name}  ({image})  [{state}]", data=name)
+# Then in action handlers:
+ct_name = node.data
+```
+
+## Textual CSS constraints
+
+- `vh`/`vw` units are **not supported** — use fixed terminal row counts (`max-height: 45`)
+- `Static` does **not scroll** — wrap in `ScrollableContainer` when content may overflow
+- `overflow-y: auto` on `Static` is silently ignored
+
+## asyncio in async functions
+
+Use `asyncio.get_running_loop()` (not `get_event_loop()`) inside async functions — `get_event_loop()` is deprecated in Python 3.10+ when a loop is already running.
+
 ## Common pitfalls
 
 - **Worker race**: always init mutable attrs in `__init__`, not just at end of worker
 - **Console() in core**: never use rich Console inside Textual — output goes to stdout (hidden). Use `self.notify()` for toasts or `OperationLogModal` for streaming
 - **pkexec hangs**: polkit auth dialog appears in a separate GTK window over Ghostty — this works fine. Don't add a timeout to pkexec calls
-- **Switch/RadioSet state**: set programmatically with `.value = True/False` (Switch) or `.action_select_button(idx)` (RadioSet)
+- **Switch/RadioSet state**: set programmatically with `switch.value = True/False` or `radio_button.value = True` inside `prevent()` — see section above
 - **Tree refresh**: call `tree.root.remove_children()` then re-run the load worker with `exclusive=True`
+- **bootc switch**: takes a positional target, not `--target`. Use `["pkexec", "bootc", "switch", ref]`

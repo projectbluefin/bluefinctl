@@ -108,6 +108,20 @@ def _read_uupd_config() -> dict:
     return {}
 
 
+async def _write_uupd_config(cfg: dict) -> None:
+    """Write uupd config via pkexec tee (requires elevated privileges)."""
+    content = json.dumps(cfg, indent=2).encode()
+    proc = await asyncio.create_subprocess_exec(
+        "pkexec", "tee", str(UUPD_CONFIG),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.communicate(content)
+    if proc.returncode != 0:
+        raise RuntimeError(f"pkexec tee failed (exit {proc.returncode})")
+
+
 def _read_state() -> dict:
     """Read bluefinctl local state."""
     if STATE_FILE.exists():
@@ -188,12 +202,77 @@ async def get_update_status() -> UpdateStatus:
     except (FileNotFoundError, OSError):
         pass
 
+    # Determine channel from bootc status
+    channel = "stable"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "bootc", "status", "--json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            data = json.loads(stdout)
+            ref = (
+                data.get("status", {})
+                .get("booted", {})
+                .get("image", {})
+                .get("image", {})
+                .get("image", "")
+            )
+            if ":" in ref:
+                raw_tag = ref.split(":", 1)[1]
+                channel = "stable" if raw_tag in ("latest", "stable") else raw_tag
+    except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
+        pass
+
     return UpdateStatus(
         strategy=strategy,
         timer_active=timer_active,
         focus_mode=focus_mode,
         brew_updates=brew_updates,
+        channel=channel,
     )
+
+
+async def set_update_strategy(strategy: UpdateStrategy) -> None:
+    """Apply an update strategy by configuring the systemd timer and uupd config."""
+    loop = asyncio.get_running_loop()
+
+    if strategy == UpdateStrategy.MANUAL:
+        # Mask the timer so it can't run
+        proc = await asyncio.create_subprocess_exec(
+            "pkexec", "systemctl", "mask", "uupd.timer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    else:
+        # Unmask + enable timer
+        for cmd in [
+            ["pkexec", "systemctl", "unmask", "uupd.timer"],
+            ["pkexec", "systemctl", "enable", "--now", "uupd.timer"],
+        ]:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+
+        # Update notify-only flag
+        cfg = await loop.run_in_executor(None, _read_uupd_config)
+        cfg["notify-only"] = strategy == UpdateStrategy.NOTIFY
+        await _write_uupd_config(cfg)
+
+
+async def set_layer_enabled(layer: str, enabled: bool) -> None:
+    """Enable or disable a specific update layer in uupd config."""
+    loop = asyncio.get_running_loop()
+    cfg = await loop.run_in_executor(None, _read_uupd_config)
+    modules = cfg.setdefault("modules", {})
+    modules.setdefault(layer, {})["disable"] = not enabled
+    await _write_uupd_config(cfg)
 
 
 # ——— Focus Mode —————————————————————————————————————————————

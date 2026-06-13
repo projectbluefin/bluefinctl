@@ -38,6 +38,10 @@ class PackageTable(Static):
     }
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._all_rows: list[tuple] = []
+
     def compose(self) -> ComposeResult:
         yield DataTable(id="pkg-table")
 
@@ -51,6 +55,7 @@ class PackageTable(Static):
         """Load user-installed packages (not from system bundles)."""
         from bluefinctl.core.brew import PackageSource, get_brew_state
 
+        self._all_rows = []
         state = await get_brew_state()
         table = self.query_one("#pkg-table", DataTable)
         table.clear()
@@ -59,10 +64,33 @@ class PackageTable(Static):
         for pkg in state.packages:
             if pkg.source == PackageSource.USER:
                 status = "~ outdated" if pkg.outdated else "ok"
-                table.add_row(pkg.name, pkg.type.value, pkg.version or "-", status)
+                row = (pkg.name, pkg.type.value, pkg.version or "-", status)
+                self._all_rows.append(row)
+                table.add_row(*row)
 
         if not state.user_packages:
             table.add_row("(no user packages)", "-", "-", "-")
+
+    def filter(self, text: str) -> None:
+        """Filter the visible rows by name or status."""
+        if not self._all_rows:
+            return  # still loading, don't clear the table
+        table = self.query_one("#pkg-table", DataTable)
+        table.clear()
+        if not text:
+            for row in self._all_rows:
+                table.add_row(*row)
+            return
+        needle = text.casefold()
+        matched = [
+            row for row in self._all_rows
+            if needle in str(row[0]).casefold() or needle in str(row[3]).casefold()
+        ]
+        if matched:
+            for row in matched:
+                table.add_row(*row)
+        else:
+            table.add_row("(no results)", "-", "-", "-")
 
 
 class PackagesScreen(Screen):
@@ -135,6 +163,10 @@ class PackagesScreen(Screen):
         if rc == 0:
             self.notify('All packages up to date', title='Upgrade')
             self.query_one(PackageTable).run_worker(self.query_one(PackageTable)._load_packages(), exclusive=True)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "pkg-search":
+            self.query_one(PackageTable).filter(event.value)
 
     def action_focus_search(self) -> None:
         self.query_one("#pkg-search", Input).focus()

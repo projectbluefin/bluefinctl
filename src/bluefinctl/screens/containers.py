@@ -71,7 +71,7 @@ class PodTree(Static):
                             ct_state = ct.get("State", "unknown")
                             ct_image = ct.get("Image", "").split("/")[-1].split(":")[0]
                             ct_icon = "+" if ct_state == "running" else "-"
-                            pod_node.add_leaf(f"  {ct_icon} {ct_name}  ({ct_image})  [{ct_state}]")
+                            pod_node.add_leaf(f"  {ct_icon} {ct_name}  ({ct_image})  [{ct_state}]", data=ct_name)
 
                     pod_node.expand()
 
@@ -117,4 +117,27 @@ class ContainersScreen(Screen):
         self.notify("Refreshed", title="Containers")
 
     async def action_view_logs(self) -> None:
-        self.notify("Select a container to view logs", title="Logs")
+        from bluefinctl.screens._modals import OperationLogModal
+
+        tree = self.query_one("#pod-tree", Tree)
+        node = tree.cursor_node
+        if node is None or node.is_root:
+            self.notify("Select a container first", title="Logs")
+            return
+
+        # Pod nodes are expandable; container nodes are leaves.
+        if node.allow_expand:
+            self.notify("Select a container (not a pod) to view logs", title="Logs")
+            return
+
+        ct_name = node.data if node.data else None
+        if not ct_name:
+            self.notify("Could not determine container name", title="Logs", severity="error")
+            return
+
+        await self.app.push_screen_wait(
+            OperationLogModal(
+                f"Logs: {ct_name}",
+                ["podman", "logs", "--tail", "200", ct_name],
+            )
+        )

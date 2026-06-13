@@ -78,3 +78,7 @@ class BluefinCtl(App):
     def action_goto(self, screen: str) -> None:
         """Switch to a named screen."""
         self.switch_screen(screen)
+
+    def action_help(self) -> None:
+        from bluefinctl.screens._modals import HelpModal
+        self.push_screen(HelpModal())

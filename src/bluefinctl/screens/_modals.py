@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Log
+from textual.widgets import Button, Input, Label, Log, Static
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -198,3 +198,91 @@ class OperationLogModal(ModalScreen[int]):
 
     def on_button_pressed(self, _event: Button.Pressed) -> None:
         self.dismiss(self._rc)
+
+
+_HELP_TEXT = """\
+[bold]Global[/bold]
+──────────────────────────
+[cyan]q[/cyan]          Quit
+[cyan]?[/cyan]          This help
+[cyan]1[/cyan]          System
+[cyan]2[/cyan]          Bundles
+[cyan]3[/cyan]          Packages
+[cyan]4[/cyan]          Updates
+[cyan]5[/cyan]          Containers
+[cyan]Tab[/cyan]        Focus next
+
+[bold]Packages Screen[/bold]
+──────────────────────────
+[cyan]a[/cyan]          Add package
+[cyan]r[/cyan]          Remove package
+[cyan]u[/cyan]          Upgrade all
+[cyan]/[/cyan]          Focus search
+
+[bold]Updates Screen[/bold]
+──────────────────────────
+[cyan]f[/cyan]          Toggle focus mode
+[cyan]u[/cyan]          Update now
+[cyan]R[/cyan]          Rollback OS
+[cyan]s[/cyan]          Switch to stable channel
+[cyan]t[/cyan]          Switch to testing channel
+
+[bold]Containers Screen[/bold]
+──────────────────────────
+[cyan]r[/cyan]          Refresh
+[cyan]l[/cyan]          View logs
+
+[bold]System Screen[/bold]
+──────────────────────────
+[cyan]d[/cyan]          Toggle devmode
+[cyan]r[/cyan]          Run ujust report
+"""
+
+
+class HelpModal(ModalScreen[None]):
+    """Display global and per-screen keybindings in a scrollable overlay."""
+
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+        ("?", "dismiss", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    HelpModal {
+        align: center middle;
+    }
+    HelpModal > Vertical {
+        width: 80;
+        height: auto;
+        max-height: 45;
+        padding: 1 2;
+        background: $surface;
+        border: thick $border;
+    }
+    HelpModal Label#help-title {
+        margin-bottom: 1;
+    }
+    HelpModal #help-scroll {
+        height: 1fr;
+        max-height: 35;
+    }
+    HelpModal Static#help-body {
+        height: auto;
+    }
+    HelpModal Horizontal {
+        height: auto;
+        align: right middle;
+        margin-top: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("Keyboard Shortcuts", id="help-title", classes="card--title")
+            with ScrollableContainer(id="help-scroll"):
+                yield Static(_HELP_TEXT, id="help-body", markup=True)
+            with Horizontal():
+                yield Button("Close", id="btn-close", variant="default")
+
+    def on_button_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)

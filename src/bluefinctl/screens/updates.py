@@ -46,7 +46,25 @@ class StrategyCard(Static):
         }
         idx = strategy_to_id.get(status.strategy, 0)
         radio_set = self.query_one("#strategy-radios", RadioSet)
-        radio_set.action_select_button(idx)
+        buttons = list(radio_set.query(RadioButton))
+        if idx < len(buttons):
+            with self.prevent(RadioSet.Changed):
+                buttons[idx].value = True
+
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        from bluefinctl.core.updates import UpdateStrategy, set_update_strategy
+        strategy_map = {
+            0: UpdateStrategy.AUTOMATIC,
+            1: UpdateStrategy.NOTIFY,
+            2: UpdateStrategy.MANUAL,
+            3: UpdateStrategy.SCHEDULED,
+        }
+        strategy = strategy_map.get(event.index, UpdateStrategy.AUTOMATIC)
+        if strategy == UpdateStrategy.SCHEDULED:
+            self.app.notify("Scheduled mode requires additional configuration (not yet implemented)", severity="warning", title="Updates")
+            return
+        self.run_worker(set_update_strategy(strategy), exclusive=True)
+        self.app.notify(f"Strategy set to {strategy.value}", title="Updates")
 
 
 class FocusModeCard(Static):
@@ -115,9 +133,26 @@ class LayerToggles(Static):
                 brew_on = not modules.get("brew", {}).get("disable", False)
             except Exception:  # noqa: BLE001
                 pass
-        self.query_one("#layer-os", Switch).value = os_on
-        self.query_one("#layer-flatpak", Switch).value = flatpak_on
-        self.query_one("#layer-brew", Switch).value = brew_on
+        with self.prevent(Switch.Changed):
+            self.query_one("#layer-os", Switch).value = os_on
+            self.query_one("#layer-flatpak", Switch).value = flatpak_on
+            self.query_one("#layer-brew", Switch).value = brew_on
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        layer_map = {
+            "layer-os": "bootc",
+            "layer-flatpak": "flatpak",
+            "layer-brew": "brew",
+        }
+        layer = layer_map.get(event.switch.id)
+        if layer is None:
+            return
+        from bluefinctl.core.updates import set_layer_enabled
+        self.run_worker(set_layer_enabled(layer, event.value), exclusive=True)
+        self.app.notify(
+            f"{layer.capitalize()} updates {'enabled' if event.value else 'disabled'}",
+            title="Updates",
+        )
 
 
 class ChannelCard(Static):
@@ -201,6 +236,8 @@ class UpdatesScreen(Screen):
         ("f", "toggle_focus", "Focus Mode"),
         ("u", "update_now", "Update Now"),
         ("R", "rollback", "Rollback"),
+        ("s", "channel_stable", "Stable"),
+        ("t", "channel_testing", "Testing"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -217,6 +254,43 @@ class UpdatesScreen(Screen):
                     yield ChannelCard()
                 with Vertical(classes="card"):
                     yield RollbackCard()
+
+    async def action_channel_stable(self) -> None:
+        await self._switch_channel("stable")
+
+    async def action_channel_testing(self) -> None:
+        await self._switch_channel("testing")
+
+    async def _switch_channel(self, channel: str) -> None:
+        from bluefinctl.core.system import get_system_info
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+
+        # Derive target ref from current image ref
+        try:
+            info = await get_system_info()
+            if not info.image_ref or ":" not in info.image_ref:
+                self.notify("Could not determine current image ref", severity="error", title="Channel")
+                return
+            base = info.image_ref.rsplit(":", 1)[0]
+            target_ref = f"{base}:{'testing' if channel == 'testing' else 'latest'}"
+        except Exception:  # noqa: BLE001
+            self.notify("Could not determine current image ref", severity="error", title="Channel")
+            return
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal(
+                f"Switch to {channel.capitalize()} channel",
+                f"This will switch the OS image to {channel}. A reboot is required.\n\nTarget: {target_ref}",
+            )
+        )
+        if confirmed:
+            await self.app.push_screen_wait(
+                OperationLogModal(
+                    f"Switch to {channel.capitalize()}",
+                    ["pkexec", "bootc", "switch", target_ref],
+                )
+            )
+            self.notify("Channel switch complete. Reboot to apply.", title="Channel")
 
     async def action_toggle_focus(self) -> None:
         from bluefinctl.core.updates import (
