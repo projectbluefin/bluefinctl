@@ -1,0 +1,275 @@
+"""Core business logic — update management via uupd."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
+from pathlib import Path
+
+UUPD_CONFIG = Path("/etc/uupd/config.json")
+STATE_DIR = Path.home() / ".config" / "bluefinctl"
+STATE_FILE = STATE_DIR / "state.json"
+TIMER_DROPIN = Path("/etc/systemd/system/uupd.timer.d/bluefinctl-schedule.conf")
+
+
+class UpdateStrategy(str, Enum):
+    """User-facing update strategy."""
+
+    AUTOMATIC = "automatic"
+    NOTIFY = "notify"
+    MANUAL = "manual"
+    SCHEDULED = "scheduled"
+
+
+class Schedule(str, Enum):
+    """Predefined update schedules."""
+
+    NIGHT_OWL = "02:00"     # 2-5 AM
+    EARLY_BIRD = "05:00"    # 5-7 AM
+    LUNCH = "12:00"         # 12-1 PM
+    CUSTOM = "custom"
+
+
+@dataclass
+class FocusState:
+    """Focus mode state."""
+
+    active: bool = False
+    activated_at: str | None = None
+    expires_at: str | None = None
+    reason: str = ""
+
+    @property
+    def days_active(self) -> int:
+        if not self.active or not self.activated_at:
+            return 0
+        activated = datetime.fromisoformat(self.activated_at)
+        return (datetime.now() - activated).days
+
+    @property
+    def is_stale(self) -> bool:
+        """True if focus mode has been active > 7 days."""
+        return self.days_active > 7
+
+
+@dataclass
+class UpdateStatus:
+    """Current update state for display."""
+
+    strategy: UpdateStrategy = UpdateStrategy.AUTOMATIC
+    timer_active: bool = True
+    focus_mode: FocusState | None = None
+    os_current: bool = True
+    os_staged: bool = False
+    flatpak_updates: int = 0
+    brew_updates: int = 0
+    last_check: str = "unknown"
+    channel: str = "stable"
+
+    def render(self) -> str:
+        """Render as multi-line string for dashboard card."""
+        focus_indicator = ""
+        if self.focus_mode and self.focus_mode.active:
+            focus_indicator = " 🎯 FOCUS"
+
+        os_status = "✓ Current" if self.os_current else "⟳ Update available"
+        if self.os_staged:
+            os_status = "⏳ Staged (reboot to apply)"
+
+        flatpak_status = (
+            f"⟳ {self.flatpak_updates} updates"
+            if self.flatpak_updates > 0
+            else "✓ Current"
+        )
+        brew_status = (
+            f"⟳ {self.brew_updates} updates"
+            if self.brew_updates > 0
+            else "✓ Current"
+        )
+
+        lines = [
+            f"Strategy: {self.strategy.value.title()}{focus_indicator}",
+            f"OS Image: {os_status}",
+            f"Flatpaks: {flatpak_status}",
+            f"Brew:     {brew_status}",
+            f"Channel:  {self.channel}",
+        ]
+        return "\n".join(lines)
+
+
+def _read_uupd_config() -> dict:
+    """Read uupd configuration."""
+    if UUPD_CONFIG.exists():
+        return json.loads(UUPD_CONFIG.read_text())
+    return {}
+
+
+def _read_state() -> dict:
+    """Read bluefinctl local state."""
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {}
+
+
+def _write_state(state: dict) -> None:
+    """Write bluefinctl local state."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def _is_timer_active() -> bool:
+    """Check if uupd.timer is active."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "uupd.timer"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() == "active"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _is_timer_masked() -> bool:
+    """Check if uupd.timer is masked (focus mode)."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-enabled", "uupd.timer"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() == "masked"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+async def get_update_status() -> UpdateStatus:
+    """Gather current update status."""
+    loop = asyncio.get_event_loop()
+
+    timer_active = await loop.run_in_executor(None, _is_timer_active)
+    timer_masked = await loop.run_in_executor(None, _is_timer_masked)
+    state = await loop.run_in_executor(None, _read_state)
+
+    # Determine strategy from timer state
+    if timer_masked:
+        strategy = UpdateStrategy.MANUAL
+    elif not timer_active:
+        strategy = UpdateStrategy.MANUAL
+    else:
+        strategy = UpdateStrategy.AUTOMATIC
+
+    # Parse focus mode from state
+    focus_data = state.get("focus_mode", {})
+    focus_mode = FocusState(
+        active=focus_data.get("active", False) or timer_masked,
+        activated_at=focus_data.get("activated_at"),
+        expires_at=focus_data.get("expires_at"),
+        reason=focus_data.get("reason", ""),
+    )
+
+    # Check for pending brew updates (fast check)
+    brew_updates = 0
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "brew", "outdated", "--quiet",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0 and stdout:
+            brew_updates = len(stdout.decode().strip().splitlines())
+    except (FileNotFoundError, OSError):
+        pass
+
+    return UpdateStatus(
+        strategy=strategy,
+        timer_active=timer_active,
+        focus_mode=focus_mode,
+        brew_updates=brew_updates,
+    )
+
+
+# ─── Focus Mode ─────────────────────────────────────────────
+
+async def activate_focus_mode(
+    duration_hours: int | None = None,
+    reason: str = "",
+) -> None:
+    """Activate focus mode — pause all updates."""
+    # Mask the timer
+    proc = await asyncio.create_subprocess_exec(
+        "pkexec", "systemctl", "mask", "uupd.timer",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+    # Record state
+    state = _read_state()
+    now = datetime.now().isoformat()
+    expires = None
+    if duration_hours:
+        expires = (datetime.now() + timedelta(hours=duration_hours)).isoformat()
+
+    state["focus_mode"] = {
+        "active": True,
+        "activated_at": now,
+        "expires_at": expires,
+        "reason": reason,
+    }
+    _write_state(state)
+
+
+async def deactivate_focus_mode() -> None:
+    """Deactivate focus mode — resume updates."""
+    # Unmask and restart timer
+    proc = await asyncio.create_subprocess_exec(
+        "pkexec", "systemctl", "unmask", "uupd.timer",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+    proc = await asyncio.create_subprocess_exec(
+        "pkexec", "systemctl", "enable", "--now", "uupd.timer",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+    # Clear state
+    state = _read_state()
+    state["focus_mode"] = {"active": False}
+    _write_state(state)
+
+
+# ─── CLI entry point ─────────────────────────────────────────
+
+def run_update(check_only: bool = False) -> None:
+    """Run update from CLI (non-interactive)."""
+    from rich.console import Console
+
+    console = Console()
+
+    if check_only:
+        status = asyncio.run(get_update_status())
+        console.print(status.render())
+    else:
+        console.print("[bold]Starting system update...[/bold]")
+        # Trigger uupd manually
+        result = subprocess.run(
+            ["systemctl", "start", "uupd.service"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            console.print("[green]✓[/green] Update triggered successfully")
+        else:
+            console.print(f"[red]✗[/red] Failed: {result.stderr.strip()}")

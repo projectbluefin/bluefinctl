@@ -1,0 +1,194 @@
+/* bluefinctl — Textual CSS Theme
+ *
+ * Design language:
+ * - Dark background with subtle surface elevation
+ * - GNOME accent color drives highlights, selections, progress
+ * - Monospace system font for that "geeky but good" aesthetic
+ * - Generous padding, clear visual hierarchy
+ */
+
+/* ──────────────────────────────────────────────
+   Base colors (dark mode — bluefin is always dark)
+   ────────────────────────────────────────────── */
+
+$background: #1a1a2e;
+$surface: #16213e;
+$surface-bright: #1f3460;
+$text: #e0e0e0;
+$text-muted: #8892a4;
+$border: #2a3f5f;
+$success: #4caf50;
+$warning: #ff9800;
+$error: #f44336;
+
+/* Accent is overridden at runtime from GNOME gsettings */
+$accent: #3584e4;
+
+/* ──────────────────────────────────────────────
+   Global
+   ────────────────────────────────────────────── */
+
+Screen {
+    background: $background;
+    color: $text;
+}
+
+Header {
+    background: $surface;
+    color: $accent;
+    text-style: bold;
+}
+
+Footer {
+    background: $surface;
+}
+
+/* ──────────────────────────────────────────────
+   Sidebar Navigation
+   ────────────────────────────────────────────── */
+
+.sidebar {
+    width: 20;
+    background: $surface;
+    border-right: thick $border;
+    padding: 1 0;
+}
+
+.sidebar--item {
+    padding: 0 2;
+    height: 3;
+    content-align: left middle;
+}
+
+.sidebar--item:hover {
+    background: $surface-bright;
+}
+
+.sidebar--item.-active {
+    background: $accent 20%;
+    border-left: thick $accent;
+    text-style: bold;
+}
+
+/* ──────────────────────────────────────────────
+   Cards (info panels)
+   ────────────────────────────────────────────── */
+
+.card {
+    border: round $border;
+    padding: 1 2;
+    margin: 1 0;
+    background: $surface;
+}
+
+.card--title {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+/* ──────────────────────────────────────────────
+   Status indicators
+   ────────────────────────────────────────────── */
+
+.status-ok {
+    color: $success;
+}
+
+.status-warn {
+    color: $warning;
+}
+
+.status-error {
+    color: $error;
+}
+
+.status-muted {
+    color: $text-muted;
+}
+
+/* ──────────────────────────────────────────────
+   Progress bars
+   ────────────────────────────────────────────── */
+
+ProgressBar > .bar--complete {
+    color: $accent;
+}
+
+ProgressBar > .bar--indeterminate {
+    color: $accent 60%;
+}
+
+/* ──────────────────────────────────────────────
+   DataTable (brew packages, containers)
+   ────────────────────────────────────────────── */
+
+DataTable {
+    background: $surface;
+}
+
+DataTable > .datatable--header {
+    background: $surface-bright;
+    text-style: bold;
+    color: $accent;
+}
+
+DataTable > .datatable--cursor {
+    background: $accent 20%;
+}
+
+/* ──────────────────────────────────────────────
+   Buttons
+   ────────────────────────────────────────────── */
+
+Button {
+    background: $surface-bright;
+    border: tall $border;
+}
+
+Button:hover {
+    background: $accent 30%;
+    border: tall $accent;
+}
+
+Button.-primary {
+    background: $accent;
+    color: $background;
+    text-style: bold;
+}
+
+/* ──────────────────────────────────────────────
+   Focus Mode indicator
+   ────────────────────────────────────────────── */
+
+.focus-mode-badge {
+    background: $warning;
+    color: $background;
+    text-style: bold;
+    padding: 0 1;
+}
+
+/* ──────────────────────────────────────────────
+   GPU badge
+   ────────────────────────────────────────────── */
+
+.gpu-nvidia {
+    color: #76b900;
+}
+
+.gpu-amd {
+    color: #ed1c24;
+}
+
+.gpu-intel {
+    color: #0071c5;
+}
+
+/* ──────────────────────────────────────────────
+   Toast notifications
+   ────────────────────────────────────────────── */
+
+Toast {
+    background: $surface-bright;
+    border: round $accent;
+}
