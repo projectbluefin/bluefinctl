@@ -119,7 +119,8 @@ def toggle_devmode() -> None:
     state = _check_devmode_active()
 
     if state.active:
-        console.print(f"Developer mode is [green]ACTIVE[/green] (groups: {', '.join(state.groups or [])})")
+        groups = ", ".join(state.groups or [])
+        console.print(f"Developer mode is [green]ACTIVE[/green] (groups: {groups})")
         console.print("Disabling...")
         asyncio.run(disable_devmode())
     else:

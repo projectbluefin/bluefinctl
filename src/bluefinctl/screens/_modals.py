@@ -177,7 +177,7 @@ class OperationLogModal(ModalScreen[int]):
                 stderr=asyncio.subprocess.STDOUT,
             )
 
-            assert proc.stdout is not None
+            assert proc.stdout is not None  # noqa: S101
             async for raw_line in proc.stdout:
                 line = raw_line.decode(errors="replace").rstrip()
                 log.write_line(line)

@@ -7,8 +7,9 @@ import json
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 UUPD_CONFIG = Path("/etc/uupd/config.json")
 STATE_DIR = Path.home() / ".config" / "bluefinctl"
@@ -16,7 +17,7 @@ STATE_FILE = STATE_DIR / "state.json"
 TIMER_DROPIN = Path("/etc/systemd/system/uupd.timer.d/bluefinctl-schedule.conf")
 
 
-class UpdateStrategy(str, Enum):
+class UpdateStrategy(StrEnum):
     """User-facing update strategy."""
 
     AUTOMATIC = "automatic"
@@ -25,7 +26,7 @@ class UpdateStrategy(str, Enum):
     SCHEDULED = "scheduled"
 
 
-class Schedule(str, Enum):
+class Schedule(StrEnum):
     """Predefined update schedules."""
 
     NIGHT_OWL = "02:00"     # 2-5 AM
@@ -101,14 +102,15 @@ class UpdateStatus:
         return "\n".join(lines)
 
 
-def _read_uupd_config() -> dict:
+def _read_uupd_config() -> dict[str, Any]:
     """Read uupd configuration."""
     if UUPD_CONFIG.exists():
-        return json.loads(UUPD_CONFIG.read_text())
+        result: dict[str, Any] = json.loads(UUPD_CONFIG.read_text())
+        return result
     return {}
 
 
-async def _write_uupd_config(cfg: dict) -> None:
+async def _write_uupd_config(cfg: dict[str, Any]) -> None:
     """Write uupd config via pkexec tee (requires elevated privileges)."""
     content = json.dumps(cfg, indent=2).encode()
     proc = await asyncio.create_subprocess_exec(
@@ -122,14 +124,15 @@ async def _write_uupd_config(cfg: dict) -> None:
         raise RuntimeError(f"pkexec tee failed (exit {proc.returncode})")
 
 
-def _read_state() -> dict:
+def _read_state() -> dict[str, Any]:
     """Read bluefinctl local state."""
     if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text())
+        result: dict[str, Any] = json.loads(STATE_FILE.read_text())
+        return result
     return {}
 
 
-def _write_state(state: dict) -> None:
+def _write_state(state: dict[str, Any]) -> None:
     """Write bluefinctl local state."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2))
@@ -172,9 +175,7 @@ async def get_update_status() -> UpdateStatus:
     state = await loop.run_in_executor(None, _read_state)
 
     # Determine strategy from timer state
-    if timer_masked:
-        strategy = UpdateStrategy.MANUAL
-    elif not timer_active:
+    if timer_masked or not timer_active:
         strategy = UpdateStrategy.MANUAL
     else:
         strategy = UpdateStrategy.AUTOMATIC

@@ -9,6 +9,8 @@ Individual package installation lives in Command Palette (Ctrl+P).
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -106,7 +108,7 @@ class ToolkitScreen(Screen[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self._bundles: list = []
+        self._bundles: list[Any] = []
 
     def compose(self) -> ComposeResult:
         yield Sidebar(active="toolkit")

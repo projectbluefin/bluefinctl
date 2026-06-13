@@ -7,6 +7,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 IMAGE_INFO_PATH = Path("/usr/share/ublue-os/image-info.json")
 
@@ -48,10 +49,11 @@ class SystemInfo:
         return "\n".join(lines)
 
 
-def _read_image_info() -> dict:
+def _read_image_info() -> dict[str, Any]:
     """Read /usr/share/ublue-os/image-info.json."""
     if IMAGE_INFO_PATH.exists():
-        return json.loads(IMAGE_INFO_PATH.read_text())
+        data: dict[str, Any] = json.loads(IMAGE_INFO_PATH.read_text())
+        return data
     return {}
 
 
@@ -100,9 +102,8 @@ def _detect_gpu() -> GpuInfo:
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
-                if "VGA" in line or "3D" in line:
-                    if "Intel" in line:
-                        return GpuInfo(vendor="intel", model=line.split(": ")[-1])
+                if ("VGA" in line or "3D" in line) and "Intel" in line:
+                    return GpuInfo(vendor="intel", model=line.split(": ")[-1])
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 

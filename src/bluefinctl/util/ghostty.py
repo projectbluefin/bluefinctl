@@ -27,8 +27,7 @@ def get_terminal_name() -> str:
     if term_program:
         return term_program
     # Fallback: check TERM
-    term = os.environ.get("TERM", "unknown")
-    return term
+    return os.environ.get("TERM", "unknown")
 
 
 def supports_kitty_keyboard() -> bool:

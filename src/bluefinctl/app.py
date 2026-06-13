@@ -14,6 +14,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Footer, Header
 
+from bluefinctl.commands import ActionsProvider, NavigationProvider, PackageProvider
 from bluefinctl.theme.accent import get_accent_color
 
 
@@ -41,6 +42,8 @@ class BluefinCtl(App[None]):
     TITLE = "bluefinctl"
 
     CSS_PATH = "theme/bluefin.tcss"
+
+    COMMANDS = {PackageProvider, NavigationProvider, ActionsProvider}
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),

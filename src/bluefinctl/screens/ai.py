@@ -7,6 +7,8 @@ TabbedContent with 2 tabs:
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -31,9 +33,9 @@ class GpuCard(Static):
         self.run_worker(self._load())
 
     async def _load(self) -> None:
-        from bluefinctl.core.ai import detect_gpu
-
         import asyncio
+
+        from bluefinctl.core.ai import detect_gpu
 
         loop = asyncio.get_running_loop()
         gpu = await loop.run_in_executor(None, detect_gpu)
@@ -66,7 +68,7 @@ class StacksTab(Static):
 
     def __init__(self) -> None:
         super().__init__()
-        self._stacks: list = []
+        self._stacks: list[Any] = []
 
     def compose(self) -> ComposeResult:
         with Static(classes="card"):
@@ -224,12 +226,11 @@ class AIScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Sidebar(active="ai")
-        with ScrollableContainer(id="ai-content"):
-            with TabbedContent():
-                with TabPane("Stacks", id="tab-stacks"):
-                    yield StacksTab()
-                with TabPane("Tools", id="tab-tools"):
-                    yield ToolsTab()
+        with ScrollableContainer(id="ai-content"), TabbedContent():
+            with TabPane("Stacks", id="tab-stacks"):
+                yield StacksTab()
+            with TabPane("Tools", id="tab-tools"):
+                yield ToolsTab()
 
     async def action_deploy_stack(self) -> None:
         """Deploy the selected stack."""

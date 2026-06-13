@@ -12,6 +12,8 @@ Controls:
 
 from __future__ import annotations
 
+import contextlib
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
@@ -130,17 +132,15 @@ class LayerToggles(Static):
         import json
         from pathlib import Path
 
-        UUPD = Path("/etc/uupd/config.json")
+        uupd_config = Path("/etc/uupd/config.json")
         os_on = flatpak_on = brew_on = True
-        if UUPD.exists():
-            try:
-                cfg = json.loads(UUPD.read_text())
+        if uupd_config.exists():
+            with contextlib.suppress(Exception):
+                cfg = json.loads(uupd_config.read_text())
                 modules = cfg.get("modules", {})
                 os_on = not modules.get("bootc", {}).get("disable", False)
                 flatpak_on = not modules.get("flatpak", {}).get("disable", False)
                 brew_on = not modules.get("brew", {}).get("disable", False)
-            except Exception:  # noqa: BLE001
-                pass
         with self.prevent(Switch.Changed):
             self.query_one("#layer-os", Switch).value = os_on
             self.query_one("#layer-flatpak", Switch).value = flatpak_on
@@ -152,7 +152,8 @@ class LayerToggles(Static):
             "layer-flatpak": "flatpak",
             "layer-brew": "brew",
         }
-        layer = layer_map.get(event.switch.id)
+        switch_id = event.switch.id or ""
+        layer = layer_map.get(switch_id)
         if layer is None:
             return
         from bluefinctl.core.updates import set_layer_enabled

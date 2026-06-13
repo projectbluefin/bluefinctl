@@ -10,6 +10,7 @@ Handles:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import subprocess
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -146,10 +147,7 @@ def detect_gpu() -> GpuDetection:
                     # Parse VRAM in bytes or MB
                     try:
                         val = int(line.split()[-1])
-                        if val > 1_000_000:
-                            vram_gb = val // (1024 * 1024 * 1024)
-                        else:
-                            vram_gb = val // 1024
+                        vram_gb = val // (1024 * 1024 * 1024) if val > 1000000 else val // 1024
                     except (ValueError, IndexError):
                         pass
 
@@ -204,10 +202,8 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
             for mapping in port_str.split(","):
                 if ":" in mapping:
                     name, port = mapping.split(":", 1)
-                    try:
+                    with contextlib.suppress(ValueError):
                         ports[name.strip()] = int(port.strip())
-                    except ValueError:
-                        pass
 
         # Find quadlet files
         container_file = ""

@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 SYSTEM_BREWFILES = Path("/usr/share/ublue-os/homebrew")
@@ -20,7 +20,7 @@ STATE_DIR = Path.home() / ".config" / "bluefinctl"
 STATE_FILE = STATE_DIR / "state.json"
 
 
-class BundleCategory(str, Enum):
+class BundleCategory(StrEnum):
     """Visual grouping for bundles."""
 
     FOUNDATION = "Foundation"
@@ -30,7 +30,7 @@ class BundleCategory(str, Enum):
     DESKTOP = "Desktop"
 
 
-class BundleState(str, Enum):
+class BundleState(StrEnum):
     """Whether a bundle is active on this system."""
 
     BASE = "base"          # Always active (cli.Brewfile) — can't remove
@@ -181,7 +181,7 @@ class Bundle:
 
 def _parse_brewfile_names(path: Path) -> list[str]:
     """Extract package/cask/flatpak names from a Brewfile."""
-    names = []
+    names: list[str] = []
     if not path.exists():
         return names
 

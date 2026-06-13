@@ -298,14 +298,13 @@ class DevModeScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Sidebar(active="devmode")
-        with ScrollableContainer(id="devmode-content"):
-            with TabbedContent():
-                with TabPane("Overview", id="tab-overview"):
-                    yield OverviewTab()
-                with TabPane("Tools", id="tab-tools"):
-                    yield ToolsTab()
-                with TabPane("Environments", id="tab-envs"):
-                    yield EnvironmentsTab()
+        with ScrollableContainer(id="devmode-content"), TabbedContent():
+            with TabPane("Overview", id="tab-overview"):
+                yield OverviewTab()
+            with TabPane("Tools", id="tab-tools"):
+                yield ToolsTab()
+            with TabPane("Environments", id="tab-envs"):
+                yield EnvironmentsTab()
 
     def action_launch_podman_tui(self) -> None:
         """Launch podman-tui in a new terminal."""

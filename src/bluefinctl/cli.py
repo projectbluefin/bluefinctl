@@ -50,10 +50,10 @@ def update(
         typer.echo(f"uupd timer: {result.stdout.strip()}")
     else:
         typer.echo("Starting update...")
-        result = subprocess.run(
+        run_result = subprocess.run(
             ["systemctl", "start", "--wait", "uupd.service"],
         )
-        raise typer.Exit(result.returncode)
+        raise typer.Exit(run_result.returncode)
 
 
 @app.command()
@@ -124,7 +124,9 @@ def ai(
     from rich.console import Console
     from rich.table import Table
 
-    from bluefinctl.core.ai import deploy_stack as _deploy, get_stacks, stop_stack as _stop
+    from bluefinctl.core.ai import deploy_stack as _deploy
+    from bluefinctl.core.ai import get_stacks
+    from bluefinctl.core.ai import stop_stack as _stop
 
     console = Console()
 
