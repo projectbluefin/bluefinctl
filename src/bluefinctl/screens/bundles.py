@@ -79,6 +79,10 @@ class BundleList(Static):
     }
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._bundles: dict = {}
+
     def compose(self) -> ComposeResult:
         yield ListView(id="bundle-listview")
 
@@ -110,6 +114,13 @@ class BundleList(Static):
         # Store bundles for detail lookup
         self._bundles = {b.meta.slug: b for b in bundles}
 
+    async def _reload(self) -> None:
+        """Clear the list and reload all bundles."""
+        lv = self.query_one("#bundle-listview", ListView)
+        await lv.clear()
+        self._bundles = {}
+        await self._load_bundles()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """When a bundle is selected, show its details."""
         slug = event.item.name
@@ -133,7 +144,47 @@ class BundlesScreen(Screen):
             yield BundleDetail()
 
     async def action_activate_bundle(self) -> None:
-        self.notify("Toggle bundle activation...", title="Bundles")
+        from bluefinctl.core.bundles import BundleState
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+
+        bundle_list = self.query_one(BundleList)
+        highlighted = bundle_list.query_one("#bundle-listview", ListView).highlighted_child
+        slug = highlighted.name if highlighted is not None else None
+
+        if slug is None or slug not in bundle_list._bundles:
+            self.notify("Select a bundle first", title="Bundles")
+            return
+
+        bundle = bundle_list._bundles[slug]
+
+        if bundle.state == BundleState.BASE:
+            self.notify("CLI Essentials is the base layer and cannot be removed", title="Bundles")
+            return
+
+        if bundle.state == BundleState.ACTIVE:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal("Deactivate Bundle", f"Deactivate '{bundle.name}'?")
+            )
+            if confirmed:
+                await self.app.push_screen_wait(
+                    OperationLogModal(
+                        "Deactivate Bundle",
+                        ["brew", "bundle", "cleanup", "--force",
+                         f"--file=/usr/share/ublue-os/homebrew/{slug}.Brewfile"],
+                    )
+                )
+                bundle_list.run_worker(bundle_list._reload())
+        else:  # AVAILABLE or PARTIAL
+            await self.app.push_screen_wait(
+                OperationLogModal(
+                    "Install Bundle",
+                    ["brew", "bundle", "install",
+                     f"--file=/usr/share/ublue-os/homebrew/{slug}.Brewfile"],
+                )
+            )
+            bundle_list.run_worker(bundle_list._reload())
 
     async def action_refresh(self) -> None:
+        bundle_list = self.query_one(BundleList)
+        bundle_list.run_worker(bundle_list._reload())
         self.notify("Refreshing bundle state...", title="Bundles")

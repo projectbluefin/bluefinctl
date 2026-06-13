@@ -192,3 +192,108 @@ Toast {
     background: $surface-bright;
     border: round $accent;
 }
+
+/* ──────────────────────────────────────────────
+   Main content area
+   ────────────────────────────────────────────── */
+
+#main-content {
+    width: 1fr;
+    height: 1fr;
+    overflow-y: auto;
+    padding: 1 2;
+}
+
+/* ──────────────────────────────────────────────
+   ListView / ListItem (bundles screen)
+   ────────────────────────────────────────────── */
+
+ListView {
+    background: $surface;
+    height: 1fr;
+    border: none;
+}
+ListItem {
+    padding: 0 1;
+    height: 3;
+    background: $surface;
+}
+ListItem:hover { background: $panel; }
+ListItem.--highlight { background: $accent 20%; }
+
+/* ──────────────────────────────────────────────
+   RadioSet / RadioButton (updates strategy)
+   ────────────────────────────────────────────── */
+
+RadioSet { background: transparent; border: none; height: auto; }
+RadioButton { background: transparent; padding: 0 1; }
+RadioButton:focus { background: $panel; }
+RadioButton.-on .toggle--button { color: $accent; }
+
+/* ──────────────────────────────────────────────
+   Switch
+   ────────────────────────────────────────────── */
+
+Switch.-on .switch--slider { color: $accent; }
+Switch:focus { border: tall $accent; }
+
+/* ──────────────────────────────────────────────
+   Input (package search, add package modal)
+   ────────────────────────────────────────────── */
+
+Input {
+    background: $surface;
+    border: tall $panel;
+    color: $text;
+}
+Input:focus { border: tall $accent; }
+
+/* ──────────────────────────────────────────────
+   Tree (containers)
+   ────────────────────────────────────────────── */
+
+Tree {
+    background: $surface;
+    height: 1fr;
+}
+Tree > .tree--guides { color: $panel; }
+Tree > .tree--cursor { background: $accent 20%; }
+Tree > .tree--highlight { background: $panel; }
+
+/* ──────────────────────────────────────────────
+   Modal overlay
+   ────────────────────────────────────────────── */
+
+ModalScreen {
+    background: $background 80%;
+    align: center middle;
+}
+.modal-container {
+    width: 80;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: round $accent;
+    padding: 1 2;
+}
+.modal-title {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+.modal-buttons {
+    height: 3;
+    align: right middle;
+    margin-top: 1;
+}
+
+/* ──────────────────────────────────────────────
+   LogView inside OperationLogModal
+   ────────────────────────────────────────────── */
+
+LogView {
+    height: 20;
+    background: $background;
+    border: round $panel;
+    margin: 1 0;
+}

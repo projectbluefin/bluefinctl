@@ -31,6 +31,23 @@ class StrategyCard(Static):
             yield RadioButton("Manual - only when I say so", id="strat-manual")
             yield RadioButton("Scheduled - pick a maintenance window", id="strat-sched")
 
+    def on_mount(self) -> None:
+        self.run_worker(self._load_strategy())
+
+    async def _load_strategy(self) -> None:
+        from bluefinctl.core.updates import UpdateStrategy, get_update_status
+
+        status = await get_update_status()
+        strategy_to_id = {
+            UpdateStrategy.AUTOMATIC: 0,
+            UpdateStrategy.NOTIFY: 1,
+            UpdateStrategy.MANUAL: 2,
+            UpdateStrategy.SCHEDULED: 3,
+        }
+        idx = strategy_to_id.get(status.strategy, 0)
+        radio_set = self.query_one("#strategy-radios", RadioSet)
+        radio_set.action_select_button(idx)
+
 
 class FocusModeCard(Static):
     """Focus mode toggle - pause all updates."""
@@ -79,6 +96,28 @@ class LayerToggles(Static):
         with Horizontal():
             yield Switch(value=True, id="layer-brew")
             yield Label("  Homebrew")
+
+    def on_mount(self) -> None:
+        self.run_worker(self._load_layers())
+
+    async def _load_layers(self) -> None:
+        import json
+        from pathlib import Path
+
+        UUPD = Path("/etc/uupd/config.json")
+        os_on = flatpak_on = brew_on = True
+        if UUPD.exists():
+            try:
+                cfg = json.loads(UUPD.read_text())
+                modules = cfg.get("modules", {})
+                os_on = not modules.get("bootc", {}).get("disable", False)
+                flatpak_on = not modules.get("flatpak", {}).get("disable", False)
+                brew_on = not modules.get("brew", {}).get("disable", False)
+            except Exception:  # noqa: BLE001
+                pass
+        self.query_one("#layer-os", Switch).value = os_on
+        self.query_one("#layer-flatpak", Switch).value = flatpak_on
+        self.query_one("#layer-brew", Switch).value = brew_on
 
 
 class ChannelCard(Static):
@@ -180,10 +219,56 @@ class UpdatesScreen(Screen):
                     yield RollbackCard()
 
     async def action_toggle_focus(self) -> None:
-        self.notify("Toggling focus mode...", title="Focus Mode")
+        from bluefinctl.core.updates import (
+            activate_focus_mode,
+            deactivate_focus_mode,
+            get_update_status,
+        )
+        from bluefinctl.screens._modals import ConfirmModal, InputModal
+
+        status = await get_update_status()
+        if status.focus_mode and status.focus_mode.active:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal("Disable Focus Mode", "Resume automatic updates now?")
+            )
+            if confirmed:
+                await deactivate_focus_mode()
+                self.notify("Focus mode disabled - updates resumed", title="Focus Mode")
+                self.query_one("#focus-switch", Switch).value = False
+        else:
+            hours_str = await self.app.push_screen_wait(
+                InputModal(
+                    "Enable Focus Mode",
+                    "Hours until auto-resume (blank = indefinite)",
+                )
+            )
+            if hours_str is not None:
+                hours = int(hours_str) if hours_str.strip().isdigit() else None
+                await activate_focus_mode(duration_hours=hours)
+                self.notify("Focus mode enabled - updates paused", title="Focus Mode")
+                self.query_one("#focus-switch", Switch).value = True
 
     async def action_update_now(self) -> None:
-        self.notify("Triggering update...", title="Update")
+        from bluefinctl.screens._modals import OperationLogModal
+
+        rc = await self.app.push_screen_wait(
+            OperationLogModal("Run Update", ["systemctl", "start", "--wait", "uupd.service"])
+        )
+        if rc == 0:
+            self.notify("Update complete", title="Update")
+        else:
+            self.notify(f"Update failed (exit {rc})", severity="error", title="Update")
 
     async def action_rollback(self) -> None:
-        self.notify("Rolling back to previous deployment...", title="Rollback")
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal(
+                "Rollback OS",
+                "Roll back to previous image? System will reboot after.",
+            )
+        )
+        if confirmed:
+            await self.app.push_screen_wait(
+                OperationLogModal("Rollback", ["pkexec", "bootc", "rollback"])
+            )

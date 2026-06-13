@@ -7,10 +7,12 @@ Does NOT show packages that came from system bundles.
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.coordinate import Coordinate
 from textual.screen import Screen
 from textual.widgets import DataTable, Input, Label, Static
 
 from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.screens._modals import ConfirmModal, InputModal, OperationLogModal
 
 
 class PackageSearch(Static):
@@ -43,7 +45,7 @@ class PackageTable(Static):
         table = self.query_one("#pkg-table", DataTable)
         table.add_columns("Name", "Type", "Version", "Status")
         table.cursor_type = "row"
-        self.run_worker(self._load_packages())
+        self.run_worker(self._load_packages(), exclusive=True)
 
     async def _load_packages(self) -> None:
         """Load user-installed packages (not from system bundles)."""
@@ -51,6 +53,7 @@ class PackageTable(Static):
 
         state = await get_brew_state()
         table = self.query_one("#pkg-table", DataTable)
+        table.clear()
 
         # Show user packages and outdated system packages
         for pkg in state.packages:
@@ -85,13 +88,53 @@ class PackagesScreen(Screen):
                 )
 
     async def action_add_package(self) -> None:
-        self.notify("Enter package name to add...", title="Add Package")
+        name = await self.app.push_screen_wait(InputModal('Add Package', 'Package name (prefix --cask for cask)'))
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            return
+        is_cask = name.startswith('--cask ')
+        pkg_name = name.removeprefix('--cask ').strip()
+        cmd = ['brew', 'install']
+        if is_cask:
+            cmd.append('--cask')
+        cmd.append(pkg_name)
+        rc = await self.app.push_screen_wait(OperationLogModal(f'Add {pkg_name}', cmd))
+        if rc == 0:
+            from pathlib import Path
+            brewfile = Path.home() / '.config' / 'bluefin' / 'Brewfile'
+            brewfile.parent.mkdir(parents=True, exist_ok=True)
+            entry = f'{"cask" if is_cask else "brew"} "{pkg_name}"\n'
+            with brewfile.open('a') as f:
+                f.write(entry)
+            self.notify(f'Added {pkg_name}', title='Packages')
+            self.query_one(PackageTable).run_worker(self.query_one(PackageTable)._load_packages(), exclusive=True)
+        else:
+            self.notify(f'Failed to install {pkg_name}', severity='error', title='Packages')
 
     async def action_remove_package(self) -> None:
-        self.notify("Select a package to remove", title="Remove Package")
+        table = self.query_one('#pkg-table', DataTable)
+        if table.cursor_row < 0:
+            self.notify('Select a package first', title='Remove')
+            return
+        row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
+        cell = table.get_cell_at(Coordinate(table.cursor_row, 0))
+        name = str(cell)
+        if name.startswith('('):
+            return
+        confirmed = await self.app.push_screen_wait(ConfirmModal('Remove Package', f'Uninstall {name}?'))
+        if confirmed:
+            rc = await self.app.push_screen_wait(OperationLogModal(f'Remove {name}', ['brew', 'uninstall', name]))
+            if rc == 0:
+                self.notify(f'Removed {name}', title='Packages')
+                self.query_one(PackageTable).run_worker(self.query_one(PackageTable)._load_packages(), exclusive=True)
 
     async def action_upgrade_all(self) -> None:
-        self.notify("Upgrading all packages...", title="Upgrade")
+        rc = await self.app.push_screen_wait(OperationLogModal('Upgrade All Packages', ['brew', 'upgrade']))
+        if rc == 0:
+            self.notify('All packages up to date', title='Upgrade')
+            self.query_one(PackageTable).run_worker(self.query_one(PackageTable)._load_packages(), exclusive=True)
 
     def action_focus_search(self) -> None:
         self.query_one("#pkg-search", Input).focus()

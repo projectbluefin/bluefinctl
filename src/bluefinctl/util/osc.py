@@ -10,6 +10,16 @@ from __future__ import annotations
 import sys
 
 
+def _write_osc(seq: str) -> None:
+    try:
+        with open('/dev/tty', 'w') as tty:
+            tty.write(seq)
+            tty.flush()
+    except OSError:
+        sys.stderr.write(seq)
+        sys.stderr.flush()
+
+
 def osc_progress(percent: int) -> None:
     """Emit OSC 9;4 progress indicator.
 
@@ -20,24 +30,19 @@ def osc_progress(percent: int) -> None:
         percent: 0-100 for progress, -1 to clear
     """
     if percent < 0:
-        # Clear progress
-        sys.stdout.write("\033]9;4;0;0\033\\")
+        _write_osc("\033]9;4;0;0\033\\")
     else:
-        # Set progress (state=1 means normal progress)
-        sys.stdout.write(f"\033]9;4;1;{percent}\033\\")
-    sys.stdout.flush()
+        _write_osc(f"\033]9;4;1;{percent}\033\\")
 
 
 def osc_progress_error() -> None:
     """Set progress indicator to error state (red)."""
-    sys.stdout.write("\033]9;4;2;100\033\\")
-    sys.stdout.flush()
+    _write_osc("\033]9;4;2;100\033\\")
 
 
 def osc_progress_indeterminate() -> None:
     """Set progress indicator to indeterminate (pulsing)."""
-    sys.stdout.write("\033]9;4;3;0\033\\")
-    sys.stdout.flush()
+    _write_osc("\033]9;4;3;0\033\\")
 
 
 def osc_progress_clear() -> None:
@@ -55,5 +60,4 @@ def osc_hyperlink(url: str, text: str) -> str:
 
 def osc_notify(title: str, body: str = "") -> None:
     """Send a desktop notification via OSC 777 (supported by some terminals)."""
-    sys.stdout.write(f"\033]777;notify;{title};{body}\033\\")
-    sys.stdout.flush()
+    _write_osc(f"\033]777;notify;{title};{body}\033\\")

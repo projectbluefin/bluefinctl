@@ -109,7 +109,12 @@ class ContainersScreen(Screen):
                 )
 
     async def action_refresh(self) -> None:
-        self.notify("Refreshing pod status...", title="Containers")
+        pod_tree = self.query_one(PodTree)
+        tree = pod_tree.query_one("#pod-tree", Tree)
+        tree.root.remove_children()
+        tree.root.expand()
+        pod_tree.run_worker(pod_tree._load_pods(tree), exclusive=True)
+        self.notify("Refreshed", title="Containers")
 
     async def action_view_logs(self) -> None:
         self.notify("Select a container to view logs", title="Logs")

@@ -38,20 +38,36 @@ class BluefinCtl(App):
         self._accent_color = get_accent_color()
 
     def on_mount(self) -> None:
-        """Apply accent color and show start screen."""
-        # Import screens lazily to avoid circular imports
+        from textual.theme import Theme
+
         from bluefinctl.screens.bundles import BundlesScreen
         from bluefinctl.screens.containers import ContainersScreen
         from bluefinctl.screens.packages import PackagesScreen
         from bluefinctl.screens.system import SystemScreen
         from bluefinctl.screens.updates import UpdatesScreen
+        from bluefinctl.theme.accent import get_accent_hex
 
-        self.install_screen(SystemScreen(), name="system")
-        self.install_screen(BundlesScreen(), name="bundles")
-        self.install_screen(PackagesScreen(), name="packages")
-        self.install_screen(UpdatesScreen(), name="updates")
-        self.install_screen(ContainersScreen(), name="containers")
+        # Register dynamic theme with GNOME accent color
+        accent = get_accent_hex()
+        self.register_theme(Theme(
+            name='bluefin',
+            primary=accent,
+            accent=accent,
+            background='#1a1a2e',
+            surface='#16213e',
+            panel='#1f3460',
+            error='#f44336',
+            warning='#ff9800',
+            success='#4caf50',
+            dark=True,
+        ))
+        self.theme = 'bluefin'
 
+        self.install_screen(SystemScreen(), name='system')
+        self.install_screen(BundlesScreen(), name='bundles')
+        self.install_screen(PackagesScreen(), name='packages')
+        self.install_screen(UpdatesScreen(), name='updates')
+        self.install_screen(ContainersScreen(), name='containers')
         self.push_screen(self._start_screen)
 
     def compose(self) -> ComposeResult:

@@ -193,7 +193,50 @@ class SystemScreen(Screen):
                     yield HealthCard()
 
     async def action_toggle_devmode(self) -> None:
-        self.notify("Toggling developer mode...", title="Devmode")
+        import os
+
+        from bluefinctl.core.devmode import _check_devmode_active
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+
+        state = _check_devmode_active()
+        username = os.environ.get('USER', '')
+        if state.active:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal('Disable Developer Mode', f'Remove docker/mock/lxd groups from {username}?')
+            )
+            if confirmed:
+                cmds = ' && '.join([
+                    f'gpasswd -d {username} docker',
+                    f'gpasswd -d {username} mock',
+                    f'gpasswd -d {username} lxd',
+                ])
+                rc = await self.app.push_screen_wait(
+                    OperationLogModal('Disable Developer Mode', ['pkexec', 'bash', '-c', cmds])
+                )
+                if rc == 0:
+                    self.notify('Developer mode disabled. Log out to apply.', title='Devmode')
+        else:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal('Enable Developer Mode', 'Add groups: docker, mock, lxd and install dev tools?')
+            )
+            if confirmed:
+                cmds = ' && '.join([
+                    f'usermod -aG docker {username} 2>/dev/null || true',
+                    f'usermod -aG mock {username} 2>/dev/null || true',
+                    f'usermod -aG lxd {username} 2>/dev/null || true',
+                ])
+                rc = await self.app.push_screen_wait(
+                    OperationLogModal('Enable Developer Mode', ['pkexec', 'bash', '-c', cmds])
+                )
+                if rc == 0:
+                    self.notify('Developer mode enabled. Log out to apply.', title='Devmode')
 
     async def action_system_report(self) -> None:
-        self.notify("Generating system report...", title="Report")
+        import shutil
+
+        from bluefinctl.screens._modals import OperationLogModal
+
+        if shutil.which('ujust'):
+            await self.app.push_screen_wait(OperationLogModal('System Report', ['ujust', 'report']))
+        else:
+            self.notify('ujust not found', severity='warning', title='Report')
