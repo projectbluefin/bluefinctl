@@ -19,7 +19,7 @@ from textual.binding import Binding
 from textual.containers import ScrollableContainer
 from textual.css.query import NoMatches
 from textual.screen import Screen
-from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
+from textual.widgets import Button, Label, ListItem, ListView, Static, TabbedContent, TabPane
 
 from bluefinctl.screens._sidebar import Sidebar
 
@@ -33,8 +33,9 @@ class OverviewTab(Static):
 
     def compose(self) -> ComposeResult:
         with Static(classes="card"):
-            yield Label("Status", classes="card--title")
+            yield Label("Developer Mode", classes="card--title")
             yield Label("  Checking...", id="devmode-status")
+            yield Button("Enable Developer Mode", id="btn-toggle-devmode", variant="primary")
         yield Label("")
         with Static(classes="card"):
             yield Label("Runtime Health", classes="card--title")
@@ -58,14 +59,16 @@ class OverviewTab(Static):
         if state.active:
             groups = ", ".join(state.groups or [])
             self.query_one("#devmode-status", Label).update(
-                f"  Developer Mode: ACTIVE\n"
-                f"  Groups: {groups}",
+                f"  Status: ACTIVE\n  Groups: {groups}"
             )
+            self.query_one("#btn-toggle-devmode", Button).label = "Disable Developer Mode"
+            self.query_one("#btn-toggle-devmode", Button).variant = "error"
         else:
             self.query_one("#devmode-status", Label).update(
-                "  Developer Mode: INACTIVE\n"
-                "  Use DevMode actions to enable developer mode",
+                "  Status: INACTIVE\n  Not in docker/mock/lxd groups"
             )
+            self.query_one("#btn-toggle-devmode", Button).label = "Enable Developer Mode"
+            self.query_one("#btn-toggle-devmode", Button).variant = "primary"
 
         # Check runtime health
         health_lines: list[str] = []
@@ -117,6 +120,10 @@ class OverviewTab(Static):
         self.query_one("#runtime-health", Label).update(
             "  " + "    ".join(health_lines),
         )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-toggle-devmode":
+            self.app.call_later(self.app.run_action, "toggle_devmode")
 
 
 class ToolsTab(Static):
@@ -324,6 +331,58 @@ class DevModeScreen(Screen[None]):
                 yield ToolsTab()
             with TabPane("Environments", id="tab-envs"):
                 yield EnvironmentsTab()
+
+    async def action_toggle_devmode(self) -> None:
+        """Enable or disable developer mode."""
+        import os
+
+        from bluefinctl.core.devmode import _check_devmode_active
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+
+        state = _check_devmode_active()
+        username = os.environ.get("USER", "")
+        if state.active:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal(
+                    "Disable Developer Mode",
+                    f"Remove docker/mock/lxd groups from {username}?",
+                )
+            )
+            if confirmed:
+                cmds = " && ".join([
+                    f"gpasswd -d {username} docker",
+                    f"gpasswd -d {username} mock",
+                    f"gpasswd -d {username} lxd",
+                ])
+                rc = await self.app.push_screen_wait(
+                    OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
+                )
+                if rc == 0:
+                    self.notify("Developer mode disabled. Log out to apply.", title="DevMode")
+                    self.query_one(OverviewTab).run_worker(
+                        self.query_one(OverviewTab)._load(), exclusive=True
+                    )
+        else:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal(
+                    "Enable Developer Mode",
+                    f"Add {username} to docker, mock, lxd groups?",
+                )
+            )
+            if confirmed:
+                cmds = " && ".join([
+                    f"usermod -aG docker {username} 2>/dev/null || true",
+                    f"usermod -aG mock {username} 2>/dev/null || true",
+                    f"usermod -aG lxd {username} 2>/dev/null || true",
+                ])
+                rc = await self.app.push_screen_wait(
+                    OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
+                )
+                if rc == 0:
+                    self.notify("Developer mode enabled. Log out to apply.", title="DevMode")
+                    self.query_one(OverviewTab).run_worker(
+                        self.query_one(OverviewTab)._load(), exclusive=True
+                    )
 
     def action_launch_podman_tui(self) -> None:
         """Launch podman-tui in a new terminal."""

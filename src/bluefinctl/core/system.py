@@ -58,47 +58,73 @@ def _read_image_info() -> dict[str, Any]:
 
 
 def _detect_gpu() -> GpuInfo:
-    """Detect GPU vendor and model."""
-    # Try nvidia-smi first
+    """Detect GPU via sysfs first (no root needed), then nvidia-smi for VRAM."""
+    import contextlib
+    import os
+
+    # --- NVIDIA via nvidia-smi (userspace, no root) ---
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
             parts = result.stdout.strip().split(", ")
             model = parts[0] if parts else "Unknown"
-            vram = int(parts[1]) if len(parts) > 1 else 0
+            vram = 0
+            with contextlib.suppress(IndexError, ValueError):
+                vram = int(parts[1])
             return GpuInfo(vendor="nvidia", model=model, vram_mb=vram)
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 
-    # Try rocm-smi for AMD
+    # --- AMD via sysfs (no root required) ---
     try:
-        result = subprocess.run(
-            ["rocm-smi", "--showproductname"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            # Parse AMD GPU name from rocm-smi output
-            for line in result.stdout.splitlines():
-                if "Card" in line or "GPU" in line:
-                    return GpuInfo(vendor="amd", model=line.strip())
-            return GpuInfo(vendor="amd", model="Detected")
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        for entry in sorted(os.listdir("/sys/class/drm")):
+            if not entry.startswith("card") or "-" in entry:
+                continue
+            vendor_path = f"/sys/class/drm/{entry}/device/vendor"
+            uevent_path = f"/sys/class/drm/{entry}/device/uevent"
+            if not os.path.exists(vendor_path):
+                continue
+            with open(vendor_path) as _f:
+                vendor_id = _f.read().strip()
+            if vendor_id != "0x1002":
+                continue
+            # AMD card — read model from uevent or drm connector
+            model = "AMD GPU"
+            if os.path.exists(uevent_path):
+                with open(uevent_path) as _f:
+                    uevent_lines = _f.read().splitlines()
+                for line in uevent_lines:
+                    if line.startswith("PCI_ID="):
+                        model = f"AMD Radeon ({line.split('=')[1]})"
+            # Try lspci for full name
+            try:
+                lspci_out = subprocess.run(
+                    ["lspci", "-d", "1002:"],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout
+                for line in lspci_out.splitlines():
+                    if "VGA" in line or "Display" in line or "3D" in line:
+                        model = line.split(": ", 1)[-1]
+                        break
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                pass
+            # VRAM from sysfs (no root)
+            vram_mb = 0
+            vram_path = f"/sys/class/drm/{entry}/device/mem_info_vram_total"
+            if os.path.exists(vram_path):
+                with contextlib.suppress(ValueError, OSError), open(vram_path) as _f:
+                    vram_mb = int(_f.read().strip()) // (1024 * 1024)
+            return GpuInfo(vendor="amd", model=model, vram_mb=vram_mb)
+    except (FileNotFoundError, PermissionError, OSError):
         pass
 
-    # Check lspci for Intel
+    # --- Intel via lspci ---
     try:
         result = subprocess.run(
-            ["lspci"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            ["lspci"], capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():

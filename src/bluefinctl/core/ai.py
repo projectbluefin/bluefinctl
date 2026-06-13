@@ -213,30 +213,44 @@ def detect_gpu() -> GpuDetection:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
+    # AMD via sysfs — no root required
+    import os as _os
     try:
-        result = subprocess.run(
-            ["rocm-smi", "--showproductname", "--showmeminfo", "vram"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            model = "Radeon"
-            vram_gb = 0
-            for line in result.stdout.splitlines():
-                if "GPU" in line and ":" in line:
-                    model = line.split(":")[-1].strip()
-                if "Total Memory" in line:
-                    with contextlib.suppress(ValueError, IndexError):
-                        val = int(line.split()[-1])
-                        vram_gb = val // (1024 * 1024 * 1024) if val > 1000000 else val // 1024
-
-            kfd_ok = Path("/dev/kfd").exists()
+        for _entry in sorted(_os.listdir("/sys/class/drm")):
+            if not _entry.startswith("card") or "-" in _entry:
+                continue
+            _vendor_path = f"/sys/class/drm/{_entry}/device/vendor"
+            if not _os.path.exists(_vendor_path):
+                continue
+            with open(_vendor_path) as _vf:
+                if _vf.read().strip() != "0x1002":
+                    continue
+            # AMD card found
+            _model = "AMD Radeon"
+            try:
+                _lspci = subprocess.run(
+                    ["lspci", "-d", "1002:"],
+                    capture_output=True, text=True, timeout=3,
+                ).stdout
+                for _line in _lspci.splitlines():
+                    if "VGA" in _line or "Display" in _line or "3D" in _line:
+                        _model = _line.split(": ", 1)[-1]
+                        break
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                pass
+            _vram_gb = 0
+            _vram_path = f"/sys/class/drm/{_entry}/device/mem_info_vram_total"
+            if _os.path.exists(_vram_path):
+                with contextlib.suppress(ValueError, OSError), open(_vram_path) as _mf:
+                    _vram_gb = int(_mf.read().strip()) // (1024 * 1024 * 1024)
+            _kfd_ok = _os.path.exists("/dev/kfd") and _os.path.exists("/sys/class/kfd/kfd")
             return GpuDetection(
                 vendor=GpuVendor.AMD,
-                model=model,
-                vram_gb=vram_gb,
-                kfd_ok=kfd_ok,
+                model=_model,
+                vram_gb=_vram_gb,
+                kfd_ok=_kfd_ok,
             )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, PermissionError, OSError):
         pass
 
     return GpuDetection()

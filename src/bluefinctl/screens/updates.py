@@ -1,117 +1,89 @@
-"""Updates screen - uupd strategy, focus mode, channel management.
-
-Controls:
-- Update strategy (automatic/notify/manual/scheduled)
-- Per-layer toggles (OS image, flatpaks, brew)
-- Focus mode (pause everything)
-- Deferral (snooze pending updates)
-- Channel (stable/testing/pinned)
-- Rollback info
-- Changelog (release notes)
-"""
+"""Updates screen — uupd strategy, focus mode, channel management."""
 
 from __future__ import annotations
 
 import contextlib
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.binding import Binding
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Label, RadioButton, RadioSet, Static, Switch
+from textual.widgets import Button, Label, RadioButton, RadioSet, Static, Switch
 
 from bluefinctl.screens._sidebar import Sidebar
 
 
 class StrategyCard(Static):
-    """Update strategy selector."""
-
-    DEFAULT_CSS = """
-    StrategyCard { height: auto; padding: 1 2; }
-    """
+    DEFAULT_CSS = "StrategyCard { height: auto; padding: 1 2; }"
 
     def compose(self) -> ComposeResult:
         yield Label("Update Strategy", classes="card--title")
         with RadioSet(id="strategy-radios"):
-            yield RadioButton("Automatic - updates apply silently", value=True, id="strat-auto")
-            yield RadioButton("Notify - download, ask before reboot", id="strat-notify")
-            yield RadioButton("Manual - only when I say so", id="strat-manual")
-            yield RadioButton("Scheduled - pick a maintenance window", id="strat-sched")
+            yield RadioButton("Automatic — updates apply silently", value=True, id="strat-auto")
+            yield RadioButton("Notify — download, ask before reboot", id="strat-notify")
+            yield RadioButton("Manual — only when I say so", id="strat-manual")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load_strategy())
+        self.run_worker(self._load(), exclusive=True)
 
-    async def _load_strategy(self) -> None:
+    async def _load(self) -> None:
         from bluefinctl.core.updates import UpdateStrategy, get_update_status
-
         status = await get_update_status()
-        strategy_to_id = {
+        idx = {
             UpdateStrategy.AUTOMATIC: 0,
             UpdateStrategy.NOTIFY: 1,
             UpdateStrategy.MANUAL: 2,
-            UpdateStrategy.SCHEDULED: 3,
-        }
-        idx = strategy_to_id.get(status.strategy, 0)
-        radio_set = self.query_one("#strategy-radios", RadioSet)
-        buttons = list(radio_set.query(RadioButton))
+        }.get(status.strategy, 0)
+        buttons = list(self.query_one(RadioSet).query(RadioButton))
         if idx < len(buttons):
             with self.prevent(RadioSet.Changed):
                 buttons[idx].value = True
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         from bluefinctl.core.updates import UpdateStrategy, set_update_strategy
-        strategy_map = {
-            0: UpdateStrategy.AUTOMATIC,
-            1: UpdateStrategy.NOTIFY,
-            2: UpdateStrategy.MANUAL,
-            3: UpdateStrategy.SCHEDULED,
-        }
-        strategy = strategy_map.get(event.index, UpdateStrategy.AUTOMATIC)
-        if strategy == UpdateStrategy.SCHEDULED:
-            self.app.notify(
-                "Scheduled mode requires additional configuration (not yet implemented)",
-                severity="warning",
-                title="Updates",
-            )
-            return
+        strategy = [UpdateStrategy.AUTOMATIC, UpdateStrategy.NOTIFY, UpdateStrategy.MANUAL][
+            min(event.index, 2)
+        ]
         self.run_worker(set_update_strategy(strategy), exclusive=True)
-        self.app.notify(f"Strategy set to {strategy.value}", title="Updates")
+        self.app.notify(f"Strategy: {strategy.value}", title="Updates")
 
 
 class FocusModeCard(Static):
-    """Focus mode toggle - pause all updates."""
-
-    DEFAULT_CSS = """
-    FocusModeCard { height: auto; padding: 1 2; }
-    """
+    DEFAULT_CSS = "FocusModeCard { height: auto; padding: 1 2; }"
 
     def compose(self) -> ComposeResult:
         yield Label("Focus Mode", classes="card--title")
         with Horizontal():
             yield Switch(value=False, id="focus-switch")
-            yield Label(
-                "  Pause all updates until you're ready.\n"
-                "  Use during training runs, demos, or deep work.",
-                id="focus-description",
-            )
+            yield Label("  Pause all updates (demos, deep work, training runs)")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load_state())
+        self.run_worker(self._load(), exclusive=True)
 
-    async def _load_state(self) -> None:
+    async def _load(self) -> None:
         from bluefinctl.core.updates import get_update_status
-
         status = await get_update_status()
-        switch = self.query_one("#focus-switch", Switch)
         if status.focus_mode and status.focus_mode.active:
-            switch.value = True
+            with self.prevent(Switch.Changed):
+                self.query_one("#focus-switch", Switch).value = True
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        if event.switch.id != "focus-switch":
+            return
+        self.run_worker(self._toggle(event.value), exclusive=True)
+
+    async def _toggle(self, on: bool) -> None:
+        from bluefinctl.core.updates import activate_focus_mode, deactivate_focus_mode
+        if on:
+            await activate_focus_mode()
+            self.app.notify("Focus mode ON — updates paused", title="Focus Mode")
+        else:
+            await deactivate_focus_mode()
+            self.app.notify("Focus mode OFF — updates resumed", title="Focus Mode")
 
 
 class LayerToggles(Static):
-    """Per-layer update control."""
-
-    DEFAULT_CSS = """
-    LayerToggles { height: auto; padding: 1 2; }
-    """
+    DEFAULT_CSS = "LayerToggles { height: auto; padding: 1 2; }"
 
     def compose(self) -> ComposeResult:
         yield Label("Per-Layer Control", classes="card--title")
@@ -126,12 +98,11 @@ class LayerToggles(Static):
             yield Label("  Homebrew")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load_layers())
+        self.run_worker(self._load(), exclusive=True)
 
-    async def _load_layers(self) -> None:
+    async def _load(self) -> None:
         import json
         from pathlib import Path
-
         uupd_config = Path("/etc/uupd/config.json")
         os_on = flatpak_on = brew_on = True
         if uupd_config.exists():
@@ -147,14 +118,9 @@ class LayerToggles(Static):
             self.query_one("#layer-brew", Switch).value = brew_on
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
-        layer_map = {
-            "layer-os": "bootc",
-            "layer-flatpak": "flatpak",
-            "layer-brew": "brew",
-        }
-        switch_id = event.switch.id or ""
-        layer = layer_map.get(switch_id)
-        if layer is None:
+        layer_map = {"layer-os": "bootc", "layer-flatpak": "flatpak", "layer-brew": "brew"}
+        layer = layer_map.get(event.switch.id or "")
+        if not layer:
             return
         from bluefinctl.core.updates import set_layer_enabled
         self.run_worker(set_layer_enabled(layer, event.value), exclusive=True)
@@ -165,52 +131,65 @@ class LayerToggles(Static):
 
 
 class ChannelCard(Static):
-    """Update channel (stable/testing)."""
+    """Channel switcher — stable / testing with real buttons."""
 
     DEFAULT_CSS = """
     ChannelCard { height: auto; padding: 1 2; }
+    #channel-info { margin-bottom: 1; }
+    #channel-buttons { height: 3; }
+    #channel-buttons Button { margin-right: 1; }
+    Button.-active-channel { background: $accent; }
     """
 
     def compose(self) -> ComposeResult:
         yield Label("Channel", classes="card--title")
-        yield Label("Loading...", id="channel-info")
+        yield Label("Detecting current channel...", id="channel-info")
+        with Horizontal(id="channel-buttons"):
+            yield Button("Stable", id="btn-stable", variant="primary")
+            yield Button("Testing", id="btn-testing")
+            yield Button("Update Now", id="btn-update-now", variant="success")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
         from bluefinctl.core.system import get_system_info
-
         info = await get_system_info()
         channel = info.image_tag or "unknown"
-        ref = info.image_ref or "-"
-
+        ref = info.image_ref or "unknown"
         self.query_one("#channel-info", Label).update(
-            f"  Current: {channel}\n"
-            f"  Ref:     {ref}\n"
-            f"\n"
-            f"  [s]table  [t]esting  [p]in version"
+            f"  Current: [bold]{channel}[/bold]\n  Ref: {ref}"
         )
+        # Highlight active channel button
+        is_testing = "testing" in channel.lower()
+        if not is_testing:
+            self.query_one("#btn-stable", Button).add_class("-active-channel")
+        else:
+            self.query_one("#btn-testing", Button).add_class("-active-channel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-stable":
+            self.app.call_later(self.app.run_action, "channel_stable")
+        elif event.button.id == "btn-testing":
+            self.app.call_later(self.app.run_action, "channel_testing")
+        elif event.button.id == "btn-update-now":
+            self.app.call_later(self.app.run_action, "update_now")
 
 
 class RollbackCard(Static):
-    """Rollback information."""
-
-    DEFAULT_CSS = """
-    RollbackCard { height: auto; padding: 1 2; }
-    """
+    DEFAULT_CSS = "RollbackCard { height: auto; padding: 1 2; }"
 
     def compose(self) -> ComposeResult:
         yield Label("Rollback", classes="card--title")
-        yield Label("Loading...", id="rollback-info")
+        yield Label("Checking...", id="rollback-info")
+        yield Button("Rollback to previous", id="btn-rollback", variant="warning")
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
         import asyncio
         import json
-
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bootc", "status", "--json",
@@ -220,83 +199,61 @@ class RollbackCard(Static):
             stdout, _ = await proc.communicate()
             if proc.returncode == 0:
                 data = json.loads(stdout)
-                status = data.get("status", {})
-                rollback = status.get("rollback", {})
+                rollback = data.get("status", {}).get("rollback", {})
                 if rollback:
                     image = rollback.get("image", {}).get("image", {}).get("image", "unknown")
-                    self.query_one("#rollback-info", Label).update(
-                        f"  Previous: {image}\n"
-                        f"  Press [R] to rollback to previous deployment"
-                    )
-                else:
-                    self.query_one("#rollback-info", Label).update(
-                        "  No previous deployment available"
-                    )
+                    self.query_one("#rollback-info", Label).update(f"  Previous: {image}")
+                    return
         except (FileNotFoundError, OSError):
-            self.query_one("#rollback-info", Label).update(
-                "  bootc not available"
-            )
+            pass
+        self.query_one("#rollback-info", Label).update("  No rollback available")
+        self.query_one("#btn-rollback", Button).disabled = True
 
-
-class DeferralCard(Static):
-    """Update deferral — snooze pending updates."""
-
-    DEFAULT_CSS = """
-    DeferralCard { height: auto; padding: 1 2; }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Label("Deferral", classes="card--title")
-        yield Label(
-            "  When updates are pending:\n"
-            "  [1h] Snooze 1 hour    [Tonight] Apply tonight\n"
-            "  [Tomorrow] Apply tomorrow    [Skip] Skip this version",
-            id="deferral-info",
-        )
-
-
-class ChangelogCard(Static):
-    """Release notes / changelog viewer."""
-
-    DEFAULT_CSS = """
-    ChangelogCard { height: auto; padding: 1 2; max-height: 20; }
-    """
-
-    def compose(self) -> ComposeResult:
-        from bluefinctl.widgets.changelog import ChangelogViewer
-
-        yield ChangelogViewer()
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-rollback":
+            self.app.call_later(self.app.run_action, "rollback")
 
 
 class UpdatesScreen(Screen[None]):
-    """Update management - strategy, focus mode, channel."""
+    """Updates — strategy, focus mode, layers, channel, rollback."""
 
     BINDINGS = [
-        ("f", "toggle_focus", "Focus Mode"),
-        ("u", "update_now", "Update Now"),
-        ("R", "rollback", "Rollback"),
-        ("s", "channel_stable", "Stable"),
-        ("t", "channel_testing", "Testing"),
+        Binding("u", "update_now", "Update Now"),
+        Binding("s", "channel_stable", "Stable"),
+        Binding("t", "channel_testing", "Testing"),
+        Binding("R", "rollback", "Rollback"),
     ]
 
+    DEFAULT_CSS = """
+    UpdatesScreen { layout: horizontal; }
+    #updates-scroll {
+        width: 1fr;
+        height: 1fr;
+        overflow-y: auto;
+        padding: 1 2;
+    }
+    .card {
+        border: round $border;
+        background: $surface;
+        margin-bottom: 1;
+        padding: 1 2;
+        height: auto;
+    }
+    """
+
     def compose(self) -> ComposeResult:
-        with Horizontal():
-            yield Sidebar("updates")
-            with Vertical(id="main-content"):
-                with Vertical(classes="card"):
-                    yield StrategyCard()
-                with Vertical(classes="card"):
-                    yield FocusModeCard()
-                with Vertical(classes="card"):
-                    yield LayerToggles()
-                with Vertical(classes="card"):
-                    yield DeferralCard()
-                with Vertical(classes="card"):
-                    yield ChannelCard()
-                with Vertical(classes="card"):
-                    yield RollbackCard()
-                with Vertical(classes="card"):
-                    yield ChangelogCard()
+        yield Sidebar(active="updates")
+        with ScrollableContainer(id="updates-scroll"):
+            with Vertical(classes="card"):
+                yield StrategyCard()
+            with Vertical(classes="card"):
+                yield FocusModeCard()
+            with Vertical(classes="card"):
+                yield LayerToggles()
+            with Vertical(classes="card"):
+                yield ChannelCard()
+            with Vertical(classes="card"):
+                yield RollbackCard()
 
     async def action_channel_stable(self) -> None:
         await self._switch_channel("stable")
@@ -307,88 +264,49 @@ class UpdatesScreen(Screen[None]):
     async def _switch_channel(self, channel: str) -> None:
         from bluefinctl.core.system import get_system_info
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
-
-        # Derive target ref from current image ref
         try:
             info = await get_system_info()
             if not info.image_ref or ":" not in info.image_ref:
-                self.notify(
-                    "Could not determine current image ref",
-                    severity="error",
-                    title="Channel",
-                )
+                self.notify("Cannot determine current image ref", severity="error")
                 return
             base = info.image_ref.rsplit(":", 1)[0]
-            target_ref = f"{base}:{'testing' if channel == 'testing' else 'latest'}"
+            target = f"{base}:{'testing' if channel == 'testing' else 'latest'}"
         except Exception:  # noqa: BLE001
-            self.notify("Could not determine current image ref", severity="error", title="Channel")
+            self.notify("Cannot determine current image ref", severity="error")
             return
-
         confirmed = await self.app.push_screen_wait(
             ConfirmModal(
-                f"Switch to {channel.capitalize()} channel",
-                f"This will switch the OS image to {channel}. "
-                f"A reboot is required.\n\nTarget: {target_ref}",
+                f"Switch to {channel.capitalize()}",
+                f"Target: {target}\n\nA reboot is required to apply.",
             )
         )
         if confirmed:
             await self.app.push_screen_wait(
-                OperationLogModal(
-                    f"Switch to {channel.capitalize()}",
-                    ["pkexec", "bootc", "switch", target_ref],
-                )
+                OperationLogModal(f"Switch to {channel}", ["pkexec", "bootc", "switch", target])
             )
-            self.notify("Channel switch complete. Reboot to apply.", title="Channel")
-
-    async def action_toggle_focus(self) -> None:
-        from bluefinctl.core.updates import (
-            activate_focus_mode,
-            deactivate_focus_mode,
-            get_update_status,
-        )
-        from bluefinctl.screens._modals import ConfirmModal, InputModal
-
-        status = await get_update_status()
-        if status.focus_mode and status.focus_mode.active:
-            confirmed = await self.app.push_screen_wait(
-                ConfirmModal("Disable Focus Mode", "Resume automatic updates now?")
+            self.notify(f"Switched to {channel}. Reboot to apply.", title="Channel")
+            self.query_one(ChannelCard).run_worker(
+                self.query_one(ChannelCard)._load(), exclusive=True
             )
-            if confirmed:
-                await deactivate_focus_mode()
-                self.notify("Focus mode disabled - updates resumed", title="Focus Mode")
-                self.query_one("#focus-switch", Switch).value = False
-        else:
-            hours_str = await self.app.push_screen_wait(
-                InputModal(
-                    "Enable Focus Mode",
-                    "Hours until auto-resume (blank = indefinite)",
-                )
-            )
-            if hours_str is not None:
-                hours = int(hours_str) if hours_str.strip().isdigit() else None
-                await activate_focus_mode(duration_hours=hours)
-                self.notify("Focus mode enabled - updates paused", title="Focus Mode")
-                self.query_one("#focus-switch", Switch).value = True
 
     async def action_update_now(self) -> None:
-        from bluefinctl.screens._modals import OperationLogModal
-
-        rc = await self.app.push_screen_wait(
-            OperationLogModal("Run Update", ["systemctl", "start", "--wait", "uupd.service"])
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal("Run Update", "Trigger uupd system update now?")
         )
-        if rc == 0:
-            self.notify("Update complete", title="Update")
-        else:
-            self.notify(f"Update failed (exit {rc})", severity="error", title="Update")
+        if confirmed:
+            rc = await self.app.push_screen_wait(
+                OperationLogModal("Update", ["systemctl", "start", "--wait", "uupd.service"])
+            )
+            if rc == 0:
+                self.notify("Update complete", title="Update")
+            else:
+                self.notify(f"Update failed (exit {rc})", severity="error", title="Update")
 
     async def action_rollback(self) -> None:
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
-
         confirmed = await self.app.push_screen_wait(
-            ConfirmModal(
-                "Rollback OS",
-                "Roll back to previous image? System will reboot after.",
-            )
+            ConfirmModal("Rollback OS", "Roll back to previous image? Reboot required.")
         )
         if confirmed:
             await self.app.push_screen_wait(
