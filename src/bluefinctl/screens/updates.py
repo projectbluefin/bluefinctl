@@ -263,12 +263,9 @@ class ChangelogCard(Static):
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("Changelog", classes="card--title")
-        yield Label(
-            "  Release notes will be shown here when available.\n"
-            "  Sourced from upstream GitHub releases.",
-            id="changelog-content",
-        )
+        from bluefinctl.widgets.changelog import ChangelogViewer
+
+        yield ChangelogViewer()
 
 
 class UpdatesScreen(Screen[None]):
