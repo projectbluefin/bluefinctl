@@ -22,10 +22,12 @@ Agent-specific instruction files (`.github/copilot-instructions.md`, `AGENTS.md`
 
 | File | Create when... |
 |---|---|
+| `ai-stacks.md` | Working on `core/ai.py`, GPU detection, stack discovery, quadlet deployment |
 | `brew.md` | Working on `core/bundles.py`, `core/brew.py`, or Brewfile layer logic |
 | `updates.md` | Working on `core/updates.py`, uupd config, systemd timer management, or focus mode |
 | `bootc.md` | Working on bootc switch/rollback/status integration |
-| `containers.md` | Working on Podman pod/container logic in `core/containers.py` or the containers screen |
+| `containers.md` | Working on Podman pod/container logic |
+| `devmode.md` | Working on `core/devmode.py`, group management, Lima, distrobox |
 | `testing.md` | Working on pytest fixtures, asyncio test patterns, or Textual snapshot tests |
 | `cli.md` | Working on `cli.py` Typer subcommands or the headless path |
 

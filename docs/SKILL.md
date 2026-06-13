@@ -12,14 +12,17 @@ Agent entry point for `projectbluefin/bluefinctl`. Load only the skill(s) that m
 | **TUI development** | |
 | Add a screen, wire actions, create modals, or modify the theme | `.agents/skills/bluefinctl-dev/SKILL.md` |
 | Debug a Textual layout, CSS, or widget state issue | `.agents/skills/bluefinctl-dev/SKILL.md` |
-| Work with the bundle system (`core/bundles.py`) | `.agents/skills/bluefinctl-dev/SKILL.md` |
+| Work with the kit/bundle system (`core/bundles.py`) | `.agents/skills/bluefinctl-dev/SKILL.md` |
 | Work with OSC progress or Ghostty integration | `.agents/skills/bluefinctl-dev/SKILL.md` |
-| Add a new panel or navigation item | `.agents/skills/bluefinctl-dev/SKILL.md` |
+| Work with the unified progress system (OperationModal) | `.agents/skills/bluefinctl-dev/SKILL.md` |
+| Add a new screen or navigation item | `.agents/skills/bluefinctl-dev/SKILL.md` |
 | **Core / business logic** | |
+| Work with AI stacks (`core/ai.py`) — GPU detection, deploy, stop | `docs/skills/ai-stacks.md` (create if needed) |
 | Modify update strategy, uupd config, or systemd timers | `docs/skills/updates.md` (create if needed) |
 | Work with Homebrew / Brewfile layers | `docs/skills/brew.md` (create if needed) |
 | Work with bootc (switch, rollback, status) | `docs/skills/bootc.md` (create if needed) |
 | Work with Podman containers or pods | `docs/skills/containers.md` (create if needed) |
+| Work with devmode (groups, Lima, distrobox) | `docs/skills/devmode.md` (create if needed) |
 | **Testing** | |
 | Write or run tests (pytest, asyncio, Textual snapshots) | `docs/skills/testing.md` (create if needed) |
 | **Factory and improvement** | |
