@@ -1,164 +1,181 @@
+---
+name: gap-tracker
+description: >-
+  Tracks what is and isn't implemented in bluefinctl against the v1 spec.
+  Use when choosing what to work on next, checking feature completeness,
+  or confirming whether a screen or subsystem is done. Updated as of
+  the feat/ux-completion branch (June 2026).
+metadata:
+  type: reference
+---
+
 # bluefinctl — Gap Tracker
 
 Status of every v1 scope item. Pick one `[ ]` item, implement it, flip it to `[x]`, commit.
 
-**Self-improvement loop:** Every session that touches a feature must also update the relevant `docs/skills/` file with what was learned. Never a follow-up — same PR.
+**Self-improvement loop:** Every session that touches a feature must also update the relevant `docs/skills/` file. Never a follow-up — same PR.
 
----
+## Navigation
+
+| Item | Status |
+|------|--------|
+| 4-screen horizontal ViewSwitcher (System · Updates · Developer · AI) | ✅ |
+| Number keys 1–4 to switch screens | ✅ |
+| `bctl` binary alias | ✅ |
+| Command Palette (Ctrl+P) | ✅ |
+| Help modal (?) | ✅ |
 
 ## Screens
 
 ### System (`screens/system.py`)
 
-- [x] Identity group — image ref, boot status, hostname
-- [x] Hardware group — GPU model, devmode status
-- [x] Health group — GPU driver, systemd, Homebrew
-- [x] Active Kits summary row
-- [x] Quick Actions — Update All, Toggle Devmode, System Report, podman-tui
-- [x] Release Channel — `AdwSwitchRow` "Opt into \`testing\` stream" (`bootc switch`)
-- [x] Rollback group — quick `bootc rollback` button + `RollbackCalendar` widget
-- [x] 2-column layout (`.adw-cols`)
-- [x] OpsBar docked at bottom
-- [ ] **Running Services** — pod count from `podman pod ls --format json`; show `N pods active` with podman-tui launch shortcut. See `core/system.py:get_system_info()` — add `pod_count` field.
-- [ ] **Active Kits detailed** — current value is always "Loading…" or a comma list that may overflow. Needs truncation + "(+N more)" and a hover/detail path.
-- [ ] **GPU VRAM in Hardware** — `sys-gpu` only shows model. Add `sys-vram` property row using `info.gpu.vram_mb // 1024` GB.
-- [ ] **System Report action** — `action_system_report()` calls `ujust report` but has no progress modal. Wire `OperationLogModal("System Report", ["ujust", "report"])`.
-- [ ] **RollbackCalendar image tag format** — needs verification on real hardware. Date-tagged builds may use `<channel>-YYYYMMDD` (e.g. `testing-20260610`) or `<version>-YYYYMMDD`. The `configure()` method takes `tag_prefix`; match actual registry format.
+| Item | Status |
+|------|--------|
+| Identity card — image, boot, hostname | ✅ |
+| Hardware card — GPU model, VRAM, devmode status | ✅ |
+| Health card — GPU driver, systemd, Homebrew | ✅ |
+| Active Kits summary | ✅ |
+| Release Stream switch (testing / stable) | ✅ |
+| Rollback calendar — date picker | ✅ |
+| Quick Actions — real bordered accent buttons (Update All, Developer Mode, System Report, podman-tui) | ✅ |
+| Update All inline (OpsBar, no modal) | ✅ |
+| System Report inline (OpsBar, no modal) | ✅ |
+| Update status in OpsBar on load | ✅ |
+| Degraded mode for non-bootc systems | ⬜ Show "unavailable" in-place rather than crashing |
 
 ### Updates (`screens/updates.py`)
 
-- [x] Software Updates group — status, image, last updated
-- [x] Update Now button (real Button, primary) + inline uupd JSON progress
-- [x] Check for Updates button
-- [x] Automatic Updates — Schedule combo (Automatic/Notify/Manual)
-- [x] Strategy description row (updates on combo change)
-- [x] What to Update — OS Image, Flatpaks, Homebrew switches
-- [x] Pause Updates — Focus Mode switch + Snooze buttons
-- [x] 2-column layout
-- [x] OpsBar with segmented progress (System/Brew/Flatpak)
-- [x] pkexec batching (one prompt per strategy change)
-- [ ] **Scheduled strategy time-picker** — design spec notes "not yet implemented". Requires a time/day-of-week picker widget. When strategy = "Scheduled", show a row asking which day/time. Store in `/etc/uupd/config.json` schedule field (check uupd docs for exact field name).
-- [ ] **Focus mode expiry countdown** — status row should show "Paused until 10pm" not just "paused". Read `state.json` `expires_at` field from `core/updates.py:FocusState`.
+| Item | Status |
+|------|--------|
+| Full-width monospace image banner (stripped of transport prefix) | ✅ |
+| Staged update alert bar | ✅ |
+| Image signed indicator 🔒/🔓 | ✅ |
+| Compression type via skopeo (zstd/gzip/zstd:chunked) | ✅ |
+| Radio-style Update Schedule (Automatic / Notify only / Manual) | ✅ |
+| Update Components (OS Image / Flatpaks / Homebrew) layer toggles | ✅ |
+| Pause Updates (focus mode) switch + snooze buttons | ✅ |
+| Release Stream section (stable/testing switch) | ✅ |
+| Rollback section | ✅ |
+| Update Now + Check for Updates pinned footer | ✅ |
+| OpsBar for inline progress | ✅ |
+| Changelog viewer | ⬜ `ChangelogViewer` widget exists as a stub; not rendered in updates screen |
+| Scheduled strategy time-picker | ⬜ Deferred to v2 |
 
-### Toolkit (`screens/toolkit.py`)
+### Developer Mode (`screens/devmode.py`)
 
-- [x] Kit list — ListView with status badges [active]/[partial]/[available]
-- [x] Kit detail pane — package list, activate/deactivate
-- [x] Kit activate/deactivate via OperationModal
-- [ ] **Category filter bar** — `[All] [Terminal] [AI & ML] [Editors] [K8s] [Cloud] [Fonts]`. Add `RadioSet` above kit list. Filter `self._bundles` by `bundle.meta.category`. Category derives from `BundleCategory` enum in `core/bundles.py`.
-- [ ] **Disk usage estimate** — show total package size in kit detail. `brew info --json <formula>` returns `bottle.stable.cellar` size. Cache this; expensive to compute fresh.
-- [ ] **Kit description** — detail pane currently shows raw package list. Add `meta.description` field to `Bundle` dataclass in `core/bundles.py` parsed from Brewfile header comments (`# Description: ...`).
-- [ ] **j/k navigation** — add `Binding("j", "cursor_down")` / `Binding("k", "cursor_up")` to ToolkitScreen.
-- [ ] **Command Palette install wiring** — `PackageProvider` in `commands.py` yields actions for `install brew:ripgrep` etc. but `action_install_package()` is a stub. Wire to `OperationModal(["brew", "install", pkg])`.
-- [ ] **OpsBar for kit install progress** — currently uses OperationModal popup. Consider switching to OpsBar inline progress for consistency with Updates screen.
-
-### DevMode (`screens/devmode.py`)
-
-- [x] OverviewTab — status, runtime health, quick actions
-- [x] ToolsTab — dev tool list with install status
-- [x] EnvironmentsTab — Podman, Distrobox, Lima status
-- [x] Lima wizard (4-step OperationModal via `lima_setup_steps()`)
-- [x] Install All dev tools action
-- [x] OpsBar
-- [ ] **DevMode relogin flow** — after `enable_devmode()` succeeds, the user needs to log out for group membership to apply. Currently just notifies. Should use `core/operations.py` to persist `needs-relogin` state and show a banner on next launch. See `operations.py` — state machine is defined but never used.
-- [ ] **EnvironmentsTab Lima check** — Lima detection is superficial. Should check `limactl list --format json` for actual VM status, not just `shutil.which("limactl")`.
-- [ ] **VSCode launch** — "Open VSCode" button in Quick Actions tab calls a stub. Wire to `launch_in_terminal(["code", "."])` or `xdg-open vscode://...`.
-- [ ] **Category filter on ToolsTab** — tools are grouped by category label rows (non-selectable). No filtering. Add filter similar to Toolkit category filter.
+| Item | Status |
+|------|--------|
+| Devmode toggle (AdwSwitchRow) at top | ✅ |
+| Status + Groups display | ✅ |
+| **Kits tab** — kit list + detail pane | ✅ |
+| **Kits tab** — per-package Install Package button | ✅ |
+| **Kits tab** — Activate / Deactivate whole kit | ✅ |
+| **Tools tab** — dev tool list with install status | ✅ |
+| **Tools tab** — per-tool Install button | ✅ |
+| **Tools tab** — Install All action | ✅ |
+| **Environments tab** — Podman Desktop, Distrobox, Lima status | ✅ |
+| Lima guided setup (4-step OperationModal) | ✅ |
+| VSCode launch button | ✅ (wired to `launch_in_terminal(["code", "."])`) |
+| DevMode relogin flow | ⬜ After enable/disable, user needs to log out. Currently just notifies. `core/operations.py` state machine exists but unused — should persist `needs-relogin` state and show banner on next launch. |
+| Lima VM status from `limactl list --format json` | ⬜ Current check is superficial (`shutil.which("limactl")`) |
+| Tools tab category filter | ⬜ Tools grouped by label rows but no filtering UI |
 
 ### AI (`screens/ai.py`)
 
-- [x] StacksTab — GPU card, category filter, stack list with VRAM badges
-- [x] Stack detail pane — description, VRAM/disk, auth status, port list
-- [x] Context-aware action buttons (Deploy/Start/Stop/Remove/Logs/Browser)
-- [x] Pre-deploy NGC/HF auth gates
-- [x] ToolsTab — AI tool inventory
-- [x] Bundled quadlet catalog (7 NVIDIA + 6 AMD stacks)
-- [x] OpsBar
-- [ ] **OSC 8 port links** — "Open in browser" shows `http://localhost:<port>` but it's not a clickable OSC 8 hyperlink. Use `util/osc.py:osc_hyperlink(url, text)` to emit `\x1b]8;;url\x1b\\text\x1b]8;;\x1b\\`. Render in the stack detail pane ports section.
-- [ ] **AI Tools registry completeness** — `AI_TOOL_REGISTRY` has 6 entries but `ai-tools.Brewfile` has 21+ tools. Add: aichat, opencode, block-goose-cli (goose), crush, gemini-cli, kimi-cli, llmfit, mistral-vibe, qwen-code, ramalama, linux-mcp-server, lm-studio, claude-code, codex, copilot-cli, antigravity, Jan (flatpak). Each needs `slug`, `command`, `name`, `description`, `category`.
-- [ ] **Stack category filter persistence** — category selection resets when `_load()` re-runs. Store `self._active_category` and re-apply after reload.
-- [ ] **GPU card VRAM** — shows `<vendor> <model>` but not VRAM. `GpuDetection.vram_gb` is available; add to display string.
-- [ ] **RollbackCalendar image tag verification** — same issue as System screen item above.
-
----
+| Item | Status |
+|------|--------|
+| GPU detection card (NVIDIA CDI / AMD KFD) | ✅ |
+| Stack catalog ListView + detail pane | ✅ |
+| Category filter bar (All / Serve / Dev / Train) | ✅ |
+| Bundled quadlet catalog (nvidia/ and amd/) | ✅ |
+| Deploy flow (preflight → confirm → copy quadlet → daemon-reload → pull → start) | ✅ |
+| Stop / Remove stack | ✅ |
+| Stack logs | ✅ |
+| NGC auth check + prompt | ✅ |
+| Clickable port links (OSC 8) | ⬜ Ports shown as text; OSC 8 hyperlinks not emitted |
+| AI Tools tab — install kit | ✅ |
+| AI Tools registry completeness | ⬜ `AI_TOOL_REGISTRY` has 6 entries; `ai-tools.Brewfile` has 21+ tools — see `docs/skills/ai-stacks.md` |
+| VRAM badge greying (stack exceeds available VRAM) | ⬜ Warning shown but no greying in catalog |
 
 ## Cross-cutting
 
 ### Progress & Operations
 
-- [x] `OperationModal` — title + ProgressBar + collapsible log
-- [x] `SegmentedProgressBar` — multi-stage bar driven by uupd JSON
-- [x] `UupdJsonParser` — parses uupd `--json` output into stage-indexed updates
-- [x] `OpsBar` — shared persistent bottom bar (dock: bottom, all screens)
-- [ ] **`operations.py` resumable state machine** — defined in `core/operations.py` but never instantiated. Used for reboot/relogin flows (DevMode enable, bootc switch). On next launch, `app.py:on_mount` should call `OperationStateManager.load()` and surface any pending operations with a banner. States: `needs-relogin`, `needs-reboot`, `pending-verification`, `complete`, `failed`.
-- [ ] **OSC 9;4 progress in OpsBar** — `util/osc.py` has `osc_progress()` but OpsBar never calls it. Add `osc_progress(pct)` calls in `SegmentedProgressBar.advance()` / `complete()`.
+| Item | Status |
+|------|--------|
+| `OperationModal` — unified progress widget | ✅ |
+| `OperationLogModal` — raw log output modal | ✅ |
+| `OpsBar` — persistent bottom bar | ✅ |
+| `SegmentedProgressBar` — multi-stage bar | ✅ |
+| `core/progress.py` — ProgressParser protocol | ✅ |
+| OSC 9;4 progress in terminal tab/titlebar | ⬜ `util/osc.py` exists but OperationModal doesn't emit it yet |
+| `core/operations.py` — resumable state machine | ⬜ Defined, never used |
 
 ### Help & UX
 
-- [x] ViewSwitcher navigation (number keys 1-5)
-- [x] Sub-tab styling (TabbedContent active tab = bold + accent tint)
-- [x] AdwButtonRow `›` chevron (left-aligned, clearly actionable)
-- [x] `_CheckToggle` widget (checkbox visual instead of horizontal slider)
-- [ ] **Help modal content** — `HelpModal` in `_modals.py` exists but shows placeholder text. Fill with actual shortcut table grouped by Global / Screen-specific. Reference `BINDINGS` from each screen.
-- [ ] **Footer bar dynamic hints** — Textual `Footer` shows bindings of the focused widget. Currently the app yields `Footer()` in `app.py` compose but it's covered by pushed screens. Either use a custom footer per screen or make the `ViewSwitcher` show context hints. Lowest-effort: add a `Label` row at the bottom of each screen's `compose()` showing screen-specific shortcuts.
-- [ ] **Toast notifications with context** — `self.notify()` is used but expiry countdowns ("Focus mode expires in 1h") aren't shown. Add `_schedule_focus_expiry_toast()` in UpdatesScreen that fires a notify at the expiry time.
+| Item | Status |
+|------|--------|
+| Help modal (?) with shortcut reference | ✅ (basic) |
+| Footer shortcuts update per screen | ⬜ Footer shows global bindings but not per-screen ones |
+| Toast notifications for key operations | ✅ (`self.notify()`) |
 
 ### Testing
 
-- [ ] **Snapshot tests** — zero exist. Textual supports `pilot.export_screenshot()` for SVG snapshots. Add one per screen in `tests/test_snapshots.py`. Run with `pytest --snapshot-update` to regenerate.
-- [ ] **CLI headless tests** — `cli.py` has `status`, `update`, `devmode`, `kit` commands. Add integration tests in `tests/test_cli.py` using `typer.testing.CliRunner`.
+| Item | Status |
+|------|--------|
+| pytest suite — 43 tests | ✅ |
+| `test_app_acceptance.py` — 4-screen registration | ✅ |
+| `test_commands.py` — PackageProvider, NavigationProvider | ✅ |
+| `test_devmode.py` — tool inventory, Tools tab interactive | ✅ |
+| `test_bundles.py`, `test_operations.py`, `test_progress.py`, `test_ai.py` | ✅ |
+| Snapshot tests (SVG per screen) | ⬜ `pilot.export_screenshot()` not yet wired |
+| CLI integration tests (`typer.testing.CliRunner`) | ⬜ |
 
 ### Headless CLI completeness
 
-- [x] `bluefinctl status` — prints system info
-- [x] `bluefinctl update` — triggers uupd
-- [x] `bluefinctl devmode on|off|status`
-- [x] `bluefinctl kit install/list`
-- [ ] `bluefinctl focus on [--hours=N]` — maps to `activate_focus_mode()`
-- [ ] `bluefinctl focus off` — maps to `deactivate_focus_mode()`
-- [ ] `bluefinctl ai deploy <stack>` — maps to `deploy_stack()`
-- [ ] `bluefinctl ai list` — maps to `get_stacks()`
-- [ ] `bluefinctl ai stop <stack>` — maps to `stop_stack()`
-- [ ] `bluefinctl ai ngc-auth <key>` — creates `ngc-api-key` podman secret
-- [ ] `bluefinctl rollback` — maps to `bootc rollback`
-- [ ] `bluefinctl channel testing|stable` — maps to `bootc switch`
-- [ ] `--json` flag on `status` — already has `print_status()` but not JSON-formatted
+| Command | Status |
+|---------|--------|
+| `bctl` / `bluefinctl` (TUI launch) | ✅ |
+| `bctl status` | ✅ |
+| `bctl update` / `bctl update --check` | ✅ |
+| `bctl devmode on/off/status` | ✅ |
+| `bctl kit list` / `bctl kit install <name>` | ✅ |
+| `bctl install brew:<pkg>` | ✅ |
+| `bctl install flatpak:<app-id>` | ✅ |
+| `bctl ai list/deploy/stop` | ✅ |
+| `bctl focus on/off` | ⬜ |
+| `bctl kit remove <name>` | ⬜ |
 
-### Degraded mode
+### Degraded mode (non-bootc systems)
 
-- [ ] When `bootc` is missing → System/Updates screens show "not a bootc system" banner, not errors
-- [ ] When `brew` is missing → Toolkit kit list shows install prompt for Homebrew
-- [ ] When `podman-tui` is missing → System Quick Actions shows disabled "Install podman-tui" button
-- [ ] When `lima` is missing → DevMode Environments tab shows install prompt
-- [ ] When `skopeo` AND `podman` are both missing → RollbackCalendar shows "Install skopeo to verify image availability" message
-
----
+| Item | Status |
+|------|--------|
+| System screen shows "unavailable" for bootc rows | ⬜ Currently may show errors/blanks |
+| Updates screen explains bootc controls unavailable | ⬜ |
+| Developer, AI screens remain fully functional | ✅ (don't depend on bootc) |
 
 ## Widget inventory
 
-| Widget | File | Status | Notes |
-|--------|------|--------|-------|
-| `AdwPreferencesGroup` | `widgets/adw.py` | ✅ | Bordered group; no separators |
-| `AdwActionRow` | `widgets/adw.py` | ✅ | title+subtitle+trailing |
-| `AdwSwitchRow` | `widgets/adw.py` | ✅ | Uses `_CheckToggle`, not Textual Switch |
-| `AdwComboRow` | `widgets/adw.py` | ✅ | Cycles choices on click |
-| `AdwButtonRow` | `widgets/adw.py` | ✅ | Left-aligned `title  ›` |
-| `AdwButtonsRow` | `widgets/adw.py` | ✅ | Real Textual Buttons side-by-side |
-| `AdwPropertyRow` | `widgets/adw.py` | ✅ | Read-only key: value |
-| `AdwExpanderRow` | `widgets/adw.py` | ✅ | Collapsible children |
-| `OpsBar` | `widgets/ops_bar.py` | ✅ | Docked bottom bar; all 5 screens |
-| `SegmentedProgressBar` | `widgets/segmented_progress.py` | ✅ | Multi-stage; ✓/▶/· states |
-| `RollbackCalendar` | `widgets/rollback_calendar.py` | ✅ | Month grid; skopeo verification; 24h cache |
-| `OperationModal` | `widgets/operation_modal.py` | ✅ | Title+progress+log modal |
-| `ChangelogViewer` | `widgets/changelog.py` | ✅ | Reads `/usr/share/ublue-os/changelog.md` |
-| `_CheckToggle` | `widgets/adw.py` | ✅ | `[✓]`/`[ ]` checkbox; private |
-
----
+| Widget | File | Status |
+|--------|------|--------|
+| `AdwPreferencesGroup` | `widgets/adw.py` | ✅ |
+| `AdwPropertyRow` | `widgets/adw.py` | ✅ |
+| `AdwSwitchRow` + `_CheckToggle` | `widgets/adw.py` | ✅ |
+| `AdwButtonRow` (with subtitle) | `widgets/adw.py` | ✅ |
+| `AdwButtonsRow` | `widgets/adw.py` | ✅ |
+| `AdwComboRow` | `widgets/adw.py` | ✅ |
+| `AdwExpanderRow` | `widgets/adw.py` | ✅ |
+| `OpsBar` | `widgets/ops_bar.py` | ✅ |
+| `SegmentedProgressBar` | `widgets/segmented_progress.py` | ✅ |
+| `RollbackCalendar` | `widgets/rollback_calendar.py` | ✅ |
+| `OperationModal` | `widgets/operation_modal.py` | ✅ |
+| `ChangelogViewer` | `widgets/changelog.py` | ⬜ stub — not shown in any screen |
 
 ## Known bugs / quirks
 
-1. **`uupd.service` start-limit** — the service has `StartLimitBurst=3`. After 3 manual triggers in 10 minutes, it fails with exit 1. The `_check_for_updates()` method handles `bootc upgrade --check` but not this limit. Workaround: run `pkexec systemctl reset-failed uupd.service` before retrying.
-2. **RollbackCalendar on non-Bluefin** — `skopeo inspect` against `ghcr.io` will succeed even on a non-bootc system, showing dates that can't actually be applied. The calendar should check `/run/ostree-booted` before rendering.
-3. **`set_value()` race** — calling `AdwSwitchRow.set_value()` before the widget is fully mounted (e.g. in `_load()` before `on_mount` fires) silently fails. Always guard with `with contextlib.suppress(NoMatches)` or check `is_mounted`.
-4. **`AdwComboRow` first-click** — the first click cycles FROM the initial value, so if `value="Automatic"` is set and the user hasn't interacted, the first click shows "Notify" (the next item). The combo starts at the index of the initial value correctly, so this is expected — document it for users.
-5. **OpsBar `dock: bottom`** — in Textual, `dock: bottom` inside a Screen with `layout: vertical` reserves space at the bottom. But if the screen has `height: auto` children that overflow, the docked widget may overlap content. Ensure `#adw-content` has `height: 1fr` so it compresses correctly.
+| Bug | Status |
+|-----|--------|
+| `toolkit.py` still exists on disk (not routed from nav) | ⬜ Harmless dead file — can delete |
+| `core/operations.py` resumable state machine defined but never wired to any screen | ⬜ |
+| `get_event_loop()` in `core/updates.py` and `core/system.py` — deprecated in 3.10+ | ⬜ Should be `get_running_loop()` |
+| Updates screen `_load()` calls `run_worker(self._load(), exclusive=True)` after channel switch inside a `@work` method — double worker nesting | ⬜ Works but noisy |

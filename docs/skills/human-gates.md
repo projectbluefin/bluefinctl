@@ -1,13 +1,17 @@
 ---
 name: human-gates
-description: "The four human decision gates — Design, Security, Breakage, and Merge — when an agent must stop and request human input. Use when uncertain whether a change requires human review, or to verify evidence requirements before opening a PR."
+description: >-
+  Defines the four human decision gates for bluefinctl: Design, Security,
+  Breakage, and Merge. Use when deciding whether to stop and ask a human,
+  how to signal a blocked state, or what evidence is required before
+  requesting PR review.
 metadata:
   type: procedure
 ---
 
 # Human Decision Gates
 
-Agents implement autonomously **except** at these four gates. At each gate, stop work and request human input explicitly. Never guess past a gate.
+Stop and request human input at these four gates. Never guess past them.
 
 ## Contents
 - [The Four Gates](#the-four-gates)
@@ -15,51 +19,45 @@ Agents implement autonomously **except** at these four gates. At each gate, stop
 - [Verification Evidence Requirement](#verification-evidence-requirement)
 - [When in Doubt](#when-in-doubt)
 
----
-
 ## The Four Gates
 
 ### 1. Design Gate
 
-**Stop when:** You are about to make an architecture change, introduce a new subsystem, or change behavior that is visible to users.
+**Stop when:** The change involves a new subsystem, an architecture decision, or user-visible behaviour that wasn't explicitly requested.
 
 Examples:
-- Adding a new panel or changing the navigation model
-- Changing how the headless CLI subcommands work
-- Restructuring `core/` modules or changing their public API
-- Changing the theme system or how GNOME accent color is applied
+- Adding a fifth screen
+- Changing the navigation model
+- Changing how OpsBar state is managed globally
+- Any change to `DESIGN.md`
 
-**Action:** Describe your proposed design clearly: what you're proposing, why, and what you're uncertain about. Ask for human approval before writing code or opening a PR.
+**Signal:** Post a description of the proposed design change and wait for explicit approval before implementing.
 
----
+**Do not:** Implement a design change speculatively and include it in a PR without prior discussion.
 
 ### 2. Security Gate
 
-**Stop when:** Your change touches privilege escalation, secrets handling, or supply chain.
+**Stop when:** The change touches auth, signing, privilege escalation, secrets, or supply chain.
 
 Examples:
-- Adding a new `pkexec` call or changing polkit policy interaction
-- Changing how `/etc/` writes are gated
-- Adding new external process invocations with user-controlled input
-- Changing how bootc image references are validated before switching
+- Adding or changing pkexec commands
+- Handling NGC API keys, HuggingFace tokens, or cosign verification
+- Changing how Podman secrets are managed
+- Any change to `trust.json` or how project trust is evaluated
 
-**Action:** Describe exactly which security property is affected and what your proposed approach preserves or changes. Ask for explicit human approval before opening any PR.
-
----
+**Signal:** Post what you're proposing to change and why, with the specific privilege paths involved. Do not implement until approved.
 
 ### 3. Breakage Gate
 
-**Stop when:** Your change could break headless CLI consumers, scripting users, or downstream Bluefin OS behavior.
+**Stop when:** The change could break headless CLI consumers or downstream scripts.
 
 Examples:
-- Changing a `bluefinctl <subcommand>` interface or exit codes
-- Changing how uupd config is written (could affect running systems)
-- Modifying bundle state logic in a way that could orphan packages
-- Changing default behavior of `bluefinctl status` (used in scripts)
+- Changing `cli.py` command signatures or exit codes
+- Removing or renaming a `core/` function that CLI paths call
+- Changing JSON output format from `--json` flags
+- Removing a `bctl` subcommand
 
-**Action:** Identify all affected consumers before opening the PR. Confirm no consumer will silently break.
-
----
+**Signal:** List the affected CLI paths and confirm the change is intentional before merging.
 
 ### 4. Merge Gate
 
@@ -67,24 +65,25 @@ Examples:
 
 This gate is always human. CI passing + `lgtm` from a human reviewer is required before merge. Agents never self-merge.
 
----
-
 ## How to Signal a Gate
 
-When you hit a gate:
+When you hit a gate, post a message in this format:
 
-1. Stop. Present what you've done (branch, diff) and what decision is needed — do NOT open a PR yet.
-2. Describe the gate clearly:
-   ```
-   Hitting the Security Gate — need human approval before opening a PR.
+```
+GATE: [Design|Security|Breakage|Merge]
 
-   Proposed change: [describe it]
-   Security property affected: [what it is]
-   My approach: [what you're proposing]
-   ```
-3. Wait for explicit human approval before opening a PR.
+What I was doing: <one sentence>
+What triggered the gate: <specific condition>
+What I need from you: <approval / decision / review>
 
----
+Options I see:
+1. <option A>
+2. <option B>
+
+Recommended: <your recommendation and reasoning>
+```
+
+Then stop. Do not continue implementing until you receive explicit direction.
 
 ## Verification Evidence Requirement
 
@@ -96,7 +95,7 @@ Before requesting formal review, ALL of the following must be true:
 - [ ] If no automated test covers the change — describe how you manually verified it
 - [ ] Skill file update committed in **this same PR** (not a follow-up)
 - [ ] PR title follows Conventional Commits format (`feat:`, `fix:`, `docs:`, etc.)
-- [ ] Both attribution trailers on every AI-authored commit:
+- [ ] Attribution trailers on every AI-authored commit:
   ```
   Assisted-by: <Model> via GitHub Copilot
   Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
@@ -104,8 +103,13 @@ Before requesting formal review, ALL of the following must be true:
 
 Do not request review until all are checked.
 
----
-
 ## When in Doubt
 
-If you are uncertain whether something hits a gate — it does. Describe what you're doing and what you're uncertain about, and ask. A short human answer costs less than a wrong implementation.
+If you are unsure whether a gate applies, treat it as if it does. The cost of an unnecessary check-in is low. The cost of a wrong architecture decision or security issue is high.
+
+## Red Flags
+
+- Implementing a feature that was never explicitly requested → Design Gate
+- Calling `pkexec` with a new command that wasn't in the existing codebase → Security Gate
+- Changing a `cli.py` function signature or removing a subcommand → Breakage Gate
+- Opening a PR without running the full verification checklist → Merge Gate not met

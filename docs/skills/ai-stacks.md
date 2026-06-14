@@ -1,95 +1,117 @@
+---
+name: ai-stacks
+description: >-
+  AI stack management for bluefinctl — GPU detection, bundled quadlet catalog,
+  variable substitution, auth, deploy flow, and status detection. Use when
+  working in screens/ai.py or core/ai.py, adding new stacks, debugging
+  deploy failures, or extending the AI Tools registry.
+metadata:
+  type: reference
+---
+
 # AI Stacks — Agent Skill
 
-Load when working on `core/ai.py`, `screens/ai.py`, or `src/bluefinctl/stacks/`.
+## When to Use
+
+- Working in `screens/ai.py` or `core/ai.py`
+- Adding a new stack to `stacks/nvidia/` or `stacks/amd/`
+- Debugging deploy / stop failures
+- Extending `AI_TOOL_REGISTRY` with new tools
+- Checking GPU detection or CDI/KFD availability
+
+## When NOT to Use
+
+- General Textual patterns → `.agents/skills/bluefinctl-dev/SKILL.md`
+- Homebrew kit management → `.agents/skills/bluefinctl-dev/SKILL.md`
 
 ## What this covers
 
-GPU-accelerated AI workload management via Podman Quadlet user services.
-
-- Stack discovery from system dirs or bundled catalog
-- GPU detection (NVIDIA CDI / AMD KFD)
-- NGC and HuggingFace auth
-- Deploy / stop / remove lifecycle
-- AI tool inventory (`ai-tools.Brewfile`)
+`core/ai.py` + `screens/ai.py` + `stacks/` — GPU-accelerated AI stack management.
 
 ## Bundled stack catalog
 
-`src/bluefinctl/stacks/` ships quadlet files from closed PRs projectbluefin/common #676 (NVIDIA) and #684 (AMD).
+```
+stacks/
+├── nvidia/
+│   ├── nim-llama3/          nim-llama3.container + nim-llama3-network.network + stack.env
+│   ├── nim-sdxl/
+│   ├── pytorch-lab/
+│   ├── nemo-training/
+│   ├── triton-serving/
+│   ├── tensorflow-lab/
+│   └── rapids-ds/
+└── amd/
+    ├── lemonade/
+    ├── ollama/
+    ├── llama-strix/
+    ├── llama-vulkan/
+    ├── pytorch-lab/
+    └── vllm/
+```
 
-| Vendor | Stack | VRAM | Category | Auth needed |
-|--------|-------|------|----------|-------------|
-| NVIDIA | NIM Llama 3.1 8B | 16 GB | nim | NGC key |
-| NVIDIA | NIM SDXL | 8 GB | nim | NGC key |
-| NVIDIA | PyTorch Lab | 8 GB | dev | — |
-| NVIDIA | TensorFlow Lab | 8 GB | dev | — |
-| NVIDIA | RAPIDS Data Science | 8 GB | dev | — |
-| NVIDIA | Triton Inference Server | 12 GB | serve | — |
-| NVIDIA | NeMo Training | 24 GB | train | — |
-| AMD | Llama Strix (gfx1151) | 8 GB | serve | — |
-| AMD | Ollama (ROCm) | 4 GB | serve | — |
-| AMD | Lemonade | 4 GB | serve | — |
-| AMD | Llama Vulkan (RDNA2+) | 4 GB | serve | — |
-| AMD | vLLM (ROCm) | 16 GB | serve | HF token |
-| AMD | PyTorch Lab (ROCm) | 8 GB | dev | — |
-
-Stack discovery priority:
-1. System: `/usr/share/ublue-os/{nvidia,amd}-stacks/`
-2. Bundled: `src/bluefinctl/stacks/{nvidia,amd}/`
+Discovery: `_discover_stacks()` checks system dirs first (`/usr/share/ublue-os/nvidia-stacks/`, `/usr/share/ublue-os/amd-stacks/`), falls back to bundled `stacks/` if not found.
 
 ## Variable substitution
 
-Container files use `${NGC_MONTH}` (NVIDIA) or `${ROCM_VERSION}` (AMD).
-Values are read from system files first, then bundled defaults:
+Deploy copies quadlet files to `~/.config/containers/systemd/` substituting:
 
-```python
-_get_ngc_month()   # → "25.06" (reads /usr/share/ublue-os/nvidia-stacks/ngc-month)
-_get_rocm_version() # → "7.2.4" (reads /usr/share/ublue-os/amd-stacks/rocm-version)
-```
+| Variable | Source |
+|---|---|
+| `${NGC_MONTH}` | `stacks/nvidia/ngc-month` file |
+| `${ROCM_VERSION}` | `stacks/amd/rocm-version` file |
 
-`_copy_quadlets(stack)` substitutes these when writing to `~/.config/containers/systemd/`.
+`_copy_quadlets()` reads these files and does a string replace before writing.
 
 ## Auth
 
-**NGC (NVIDIA NIM stacks):**
 ```python
-check_ngc_secret()  # → True if podman secret "ngc-api-key" exists
-# Create: podman secret create ngc-api-key -  <<< "your-key"
-# CLI:    bluefinctl ai ngc-auth <key>  (NOT YET IMPLEMENTED — see gap-tracker)
+from bluefinctl.core.ai import check_ngc_secret
+
+# Returns True if podman secret "ngc-api-key" exists
+has_ngc = await check_ngc_secret()
+
+# Create via: podman secret create ngc-api-key <file>
 ```
 
-**HuggingFace (vLLM, some llama stacks):**
-```python
-check_hf_token()  # → True if HF_TOKEN env var or ~/.cache/huggingface/token exists
-```
+NGC auth required for NIM stacks (`STACK_REQUIRES_NGC_AUTH=true` in stack.env).
 
 ## Deploy flow
 
 ```
-_copy_quadlets(stack)            # substitute vars, write .container + .network to ~/.config/containers/systemd/
-systemctl --user daemon-reload   # let systemd pick up new quadlet files
-systemctl --user start <slug>    # start the container service
-```
+Preflight checks:
+  1. GPU vendor detected (NVIDIA CDI / AMD KFD / Intel)
+  2. VRAM >= STACK_VRAM_GB (warn if not, allow override)
+  3. Ports not in use
+  4. Disk space estimate
+  5. Auth tokens if required
 
-`deploy_stack_steps()` returns an async generator of `ProgressUpdate` for `OperationModal`.
+Deploy (OperationModal steps):
+  1. _copy_quadlets() → ~/.config/containers/systemd/
+  2. systemctl --user daemon-reload
+  3. podman pull <image>  (PodmanPullParser for progress)
+  4. systemctl --user start <pod>
+  5. Verify pod is running
+
+Failure rollback:
+  - Remove copied quadlet files
+  - daemon-reload to clean state
+```
 
 ## Status detection
 
 ```python
-_get_deployed_slugs()         # quadlet .container files present in ~/.config/containers/systemd/
-_get_running_user_services()  # active services from systemctl --user list-units
+# Pod running check
+proc = await asyncio.create_subprocess_exec(
+    "systemctl", "--user", "is-active", f"{stack_name}-pod.service",
+    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+)
+stdout, _ = await proc.communicate()
+is_running = proc.returncode == 0 and stdout.decode().strip() == "active"
 ```
-
-`StackStatus.STOPPED` = deployed but not running. `StackStatus.RUNNING` = service active.
 
 ## Image tag format (rollback calendar)
 
-Date-tagged builds use `<base>:<tag_prefix>-<YYYYMMDD>`:
-- NVIDIA: `ghcr.io/projectbluefin/bluefin:43-20260610`
-- AMD (if applicable): same format
-
-Verification via `skopeo inspect --raw docker://<ref>` (falls back to `podman manifest inspect`).
-
-**⚠ Unverified on real hardware** — the exact tag format may differ between variants (bluefin vs dakota vs bluefin-lts). Test on real Bluefin hardware before declaring this working.
+Bluefin daily builds use date-tagged images: `ghcr.io/projectbluefin/dakota:latest.20260113`. The rollback calendar uses `skopeo inspect --raw` to discover available tags from the registry.
 
 ## AI Tools registry gap
 
@@ -111,7 +133,25 @@ Detection: `shutil.which(tool.command)` for brew tools; flatpak tools need `flat
 
 ## Common mistakes
 
-- **Don't call `systemctl start` without `daemon-reload` first** — new quadlet files are invisible until reload.
-- **Don't use `podman pod ls` for status** — stacks use systemd services, not pods. Use `systemctl --user list-units`.
-- **NIM stacks need `TimeoutStartSec=600`** — first pull is 8-16 GB; default timeout kills it.
-- **AMD `/dev/kfd` check** — `kfd_ok` in `GpuDetection` requires `/dev/kfd` AND `/sys/class/kfd/kfd`. Absence means ROCm can't see the GPU but Vulkan may still work (llama-vulkan doesn't need kfd).
+| Mistake | Fix |
+|---|---|
+| Calling deploy from button handler without `@work` | `push_screen_wait` in deploy flow requires `@work(exclusive=True)` |
+| Hardcoding `/usr/share/ublue-os/nvidia-stacks/` path | Use `_discover_stacks()` which handles both system and bundled |
+| `systemctl start` without `--user` flag | AI stacks are user-level systemd units |
+| Forgetting `daemon-reload` after copy | Quadlet files require daemon-reload before start |
+
+## Red Flags
+
+- New stack added to `stacks/` without a `stack.env` file
+- Deploy action calls `push_screen_wait` without `@work`
+- `AI_TOOL_REGISTRY` and `ai-tools.Brewfile` diverge further (check both when adding tools)
+
+## Verification
+
+After AI stack changes:
+
+- [ ] `pytest tests/test_ai.py` passing
+- [ ] `ruff` and `mypy` clean
+- [ ] GPU detection returns correct vendor on target hardware
+- [ ] Stack appears in catalog with correct VRAM badge
+- [ ] Deploy smoke test: stack starts, port opens, stop works
