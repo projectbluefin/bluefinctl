@@ -26,7 +26,65 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, Label, Rule, Switch
+from textual.widgets import Button, Label, Rule
+
+
+class _CheckToggle(Widget):
+    """Compact checkbox replacement for Textual's Switch.
+
+    Renders as ``[✓]`` (on) or ``[ ]`` (off) at exactly height 1.
+    Textual's built-in Switch uses ``border: tall`` which forces 3 rows —
+    this widget keeps the row height to 1 or 2 (with subtitle).
+
+    Messages: fires the parent AdwSwitchRow.Changed, not its own message.
+    """
+
+    DEFAULT_CSS = """
+    _CheckToggle {
+        width: 5;
+        height: 1;
+        content-align: center middle;
+        background: transparent;
+    }
+    _CheckToggle:hover { color: $accent; }
+    _CheckToggle.-on    { color: $accent; text-style: bold; }
+    """
+
+    def __init__(self, value: bool = False, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._value = value
+        if value:
+            self.add_class("-on")
+
+    def render(self) -> str:
+        return "[✓]" if self._value else "[ ]"
+
+    def on_click(self) -> None:
+        self._value = not self._value
+        if self._value:
+            self.add_class("-on")
+        else:
+            self.remove_class("-on")
+        self.refresh()
+        # Walk up to the owning AdwSwitchRow and emit Changed
+        row = self.parent
+        while row is not None and not isinstance(row, AdwSwitchRow):
+            row = getattr(row, "parent", None)
+        if isinstance(row, AdwSwitchRow):
+            row.post_message(AdwSwitchRow.Changed(row, self._value))
+
+    @property
+    def value(self) -> bool:
+        return self._value
+
+    @value.setter
+    def value(self, v: bool) -> None:
+        self._value = v
+        if v:
+            self.add_class("-on")
+        else:
+            self.remove_class("-on")
+        self.refresh()
 
 
 class AdwPreferencesGroup(Vertical):
@@ -163,23 +221,16 @@ class AdwActionRow(Horizontal):
 
 
 class AdwSwitchRow(Horizontal):
-    """AdwActionRow with a Switch on the right.
+    """AdwActionRow with a compact checkbox toggle on the right.
+
+    Uses ``_CheckToggle`` (renders ``[\u2713]``/``[ ]`` at height 1) instead of
+    Textual's built-in ``Switch`` which forces 3 rows via ``border: tall``.
 
     Messages:
-        AdwSwitchRow.Changed: Switch value changed (row, value).
-
-    Usage::
-
-        yield AdwSwitchRow("Focus Mode", subtitle="Pause all updates", id="focus-sw")
-
-        def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
-            if event.row.id == "focus-sw":
-                ...
+        AdwSwitchRow.Changed: value changed (row, value).
     """
 
     class Changed(Message):
-        """Fired when the switch value changes."""
-
         def __init__(self, row: AdwSwitchRow, value: bool) -> None:
             super().__init__()
             self.row = row
@@ -187,8 +238,8 @@ class AdwSwitchRow(Horizontal):
 
     DEFAULT_CSS = """
     AdwSwitchRow {
-        height: auto;
-        min-height: 2;
+        height: 1;
+        min-height: 1;
         background: $surface;
         padding: 0 1;
         align: left middle;
@@ -196,24 +247,24 @@ class AdwSwitchRow(Horizontal):
     AdwSwitchRow:hover { background: $panel; }
     AdwSwitchRow > .adw-row-content {
         width: 1fr;
-        height: auto;
-        min-height: 2;
+        height: 1;
         content-align: left middle;
-        padding: 0;
     }
     AdwSwitchRow > .adw-row-trailing {
-        width: auto;
-        min-height: 2;
+        width: 5;
+        height: 1;
         align: right middle;
         content-align: right middle;
     }
     AdwSwitchRow > .adw-row-content > .adw-row-title {
         text-style: bold;
         width: 1fr;
+        height: 1;
     }
     AdwSwitchRow > .adw-row-content > .adw-row-subtitle {
         color: $text-muted;
         width: 1fr;
+        height: 1;
     }
     """
 
@@ -224,7 +275,7 @@ class AdwSwitchRow(Horizontal):
         value: bool = False,
         *,
         name: str | None = None,
-        id: str | None = None,
+        id: str | None = None,  # noqa: A002
         classes: str | None = None,
         disabled: bool = False,
     ) -> None:
@@ -239,24 +290,28 @@ class AdwSwitchRow(Horizontal):
             if self._row_subtitle:
                 yield Label(self._row_subtitle, classes="adw-row-subtitle")
         with Vertical(classes="adw-row-trailing"):
-            yield Switch(value=self._initial_value, id=f"_sw_{self.id or id(self)}")
+            yield _CheckToggle(value=self._initial_value, id=f"_ct_{self.id or id(self)}")
 
-    def on_switch_changed(self, event: Switch.Changed) -> None:
-        """Re-emit as AdwSwitchRow.Changed and stop raw Switch.Changed from bubbling."""
-        event.stop()
-        self.post_message(AdwSwitchRow.Changed(self, event.value))
+    def on_mount(self) -> None:
+        if self._row_subtitle:
+            self.styles.height = 2
+            self.query_one(".adw-row-content").styles.height = 2
+            self.query_one(".adw-row-trailing").styles.height = 2
 
     def set_value(self, value: bool) -> None:
-        """Set the switch value without firing a Changed event."""
-        switch = self.query_one(Switch)
-        with self.prevent(Switch.Changed):
-            switch.value = value
+        """Set value without firing Changed."""
+        toggle = self.query_one(_CheckToggle)
+        toggle._value = value
+        if value:
+            toggle.add_class("-on")
+        else:
+            toggle.remove_class("-on")
+        toggle.refresh()
 
     @property
     def value(self) -> bool:
-        """Current switch value."""
         try:
-            return self.query_one(Switch).value
+            return self.query_one(_CheckToggle).value
         except Exception:  # noqa: BLE001
             return self._initial_value
 

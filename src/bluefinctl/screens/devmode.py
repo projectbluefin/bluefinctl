@@ -413,8 +413,7 @@ class DevModeScreen(Screen[None]):
             self.query_one("#devmode-groups", AdwPropertyRow).update_value(
                 ", ".join(state.groups)
             )
-        # Set switch without firing Changed event
-        with self.prevent(AdwSwitchRow.Changed):
+        # Set switch without firing Changed event (set_value never fires Changed)
             self.query_one("#devmode-switch", AdwSwitchRow).set_value(state.active)
 
     # ─────────────────────────────────────────────────────────────────────────
