@@ -236,7 +236,7 @@ The app follows GNOME `color-scheme` live via `gsettings monitor`. Never hardcod
 - **`height: auto` on Horizontal** — expands to fill parent, not shrink to content. Use explicit `height: 1` and `on_mount` to set `height: 2` for subtitle rows.
 - **Switch widget** — `border: tall` makes it 3 rows. Use `_CheckToggle` instead.
 - **`AdwButtonRow` vs `AdwButtonsRow`** — `AdwButtonRow` = suggestion row with `›`; `AdwButtonsRow` = real Textual Buttons for primary actions.
-- **Worker race**: always init mutable attrs in `__init__`, not just at end of worker
+- **`push_screen_wait` requires a worker** — Textual 1.x raises `NoActiveWorker` if called outside one. The correct fix is `@work(exclusive=True)` on the async method; it becomes a plain callable that starts a worker. Call it directly — no `run_worker(self.method())` wrapper needed. Applies to ALL async methods that call `push_screen_wait`, including action methods triggered by keybindings.
 - **Console() in core**: never use rich Console inside Textual — use `self.notify()`
 - **pkexec hangs**: polkit auth dialog appears in a separate GTK window — don't add timeouts
 - **bootc switch**: positional target — `["pkexec", "bootc", "switch", ref]` not `--target`
