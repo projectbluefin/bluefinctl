@@ -144,3 +144,37 @@ class BluefinCtl(App[None]):
     def action_help(self) -> None:
         from bluefinctl.screens._modals import HelpModal
         self.push_screen(HelpModal())
+
+    def action_update_now(self) -> None:
+        """Switch to Updates screen and trigger an update (Command Palette entry point)."""
+        self.switch_screen("updates")
+        # Dispatch to the screen once it's active
+        self.call_after_refresh(self._trigger_update_now)
+
+    def _trigger_update_now(self) -> None:
+        from bluefinctl.screens.updates import UpdatesScreen
+        try:
+            screen = self.get_screen("updates")
+            if isinstance(screen, UpdatesScreen):
+                screen.action_update_now()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def action_toggle_focus(self) -> None:
+        """Switch to Updates screen and toggle focus mode (Command Palette entry point)."""
+        self.switch_screen("updates")
+        self.call_after_refresh(self._trigger_toggle_focus)
+
+    def _trigger_toggle_focus(self) -> None:
+        from bluefinctl.screens.updates import UpdatesScreen
+        try:
+            screen = self.get_screen("updates")
+            if isinstance(screen, UpdatesScreen):
+                row = screen.query_one("#focus-switch")
+                from bluefinctl.widgets.adw import AdwSwitchRow
+                if isinstance(row, AdwSwitchRow):
+                    new_val = not row.value
+                    row.set_value(new_val)
+                    screen._toggle_focus(new_val)
+        except Exception:  # noqa: BLE001
+            pass

@@ -1,11 +1,11 @@
-"""Developer Mode screen — kits, tools, environments, devmode toggle.
+"""Developer Mode screen - kits, tools, environments, devmode toggle.
 
 Merged from toolkit.py + devmode.py.
 
 Tabs:
-  Kits         — Brewfile-backed kit bundles with individual package install
-  Tools        — Developer tool list with per-tool install
-  Environments — Podman Desktop, Distrobox, Lima VM
+  Kits         - Brewfile-backed kit bundles with individual package install
+  Tools        - Developer tool list with per-tool install
+  Environments - Podman Desktop, Distrobox, Lima VM
 """
 
 from __future__ import annotations
@@ -74,12 +74,16 @@ class KitDetailPane(Vertical):
         with ScrollableContainer(id="kit-pkg-scroll"):
             yield ListView(id="kit-pkg-list")
         with Horizontal(id="kit-action-bar"):
-            yield Button("Activate",   id="btn-kit-activate",   variant="primary", disabled=True)
-            yield Button("Deactivate", id="btn-kit-deactivate", variant="warning",  disabled=True)
+            yield Button("Activate",
+                         id="btn-kit-activate", variant="primary", disabled=True)
+            yield Button("Deactivate",
+                         id="btn-kit-deactivate", variant="warning", disabled=True)
+            yield Button("Install Package",
+                         id="btn-pkg-install", variant="default", disabled=True)
 
     def show_bundle(self, bundle: Any, installed: set[str]) -> None:
         """Render kit detail for the given bundle."""
-        self._bundle   = bundle
+        self._bundle    = bundle
         self._installed = installed
 
         self.query_one("#kit-detail-title", Label).update(f"{bundle.meta.icon}  {bundle.name}")
@@ -101,18 +105,42 @@ class KitDetailPane(Vertical):
         from bluefinctl.core.bundles import BundleState
         btn_activate   = self.query_one("#btn-kit-activate",   Button)
         btn_deactivate = self.query_one("#btn-kit-deactivate", Button)
-        is_base    = bundle.state == BundleState.BASE
-        is_active  = bundle.state in (BundleState.ACTIVE, BundleState.PARTIAL)
+        is_base   = bundle.state == BundleState.BASE
+        is_active = bundle.state in (BundleState.ACTIVE, BundleState.PARTIAL)
         btn_activate.disabled   = is_base or is_active
         btn_deactivate.disabled = is_base or not is_active
+        # Per-package install always starts disabled; enabled on selection
+        self.query_one("#btn-pkg-install", Button).disabled = True
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Enable Install Package when an uninstalled package is highlighted."""
+        if event.list_view.id != "kit-pkg-list":
+            return
+        pkg_name = event.item.name if event.item else None
+        btn = self.query_one("#btn-pkg-install", Button)
+        btn.disabled = (
+            pkg_name is None
+            or pkg_name in self._installed
+            or self._bundle is None
+        )
+
+    def selected_package(self) -> str | None:
+        """Return the highlighted package name, or None."""
+        try:
+            item = self.query_one("#kit-pkg-list", ListView).highlighted_child
+            return item.name if item else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id in ("btn-kit-activate", "btn-kit-deactivate"):
             self.screen.action_activate_kit()  # type: ignore[attr-defined]
+        elif event.button.id == "btn-pkg-install":
+            self.screen.action_install_package()  # type: ignore[attr-defined]
 
 
 class KitsTab(Static):
-    """Kits tab — Brewfile kit bundles."""
+    """Kits tab - Brewfile kit bundles."""
 
     DEFAULT_CSS = """
     KitsTab {
@@ -188,7 +216,7 @@ class KitsTab(Static):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ToolsTab(Static):
-    """Developer Tools — list with per-tool install status and install button."""
+    """Developer Tools - list with per-tool install status and install button."""
 
     DEFAULT_CSS = """
     ToolsTab { height: 1fr; }
@@ -243,7 +271,7 @@ class ToolsTab(Static):
             if tool.category != current_category:
                 current_category = tool.category
                 tool_list.append(
-                    ListItem(Label(f"  — {current_category} —"), disabled=True)
+                    ListItem(Label(f"  - {current_category} -"), disabled=True)
                 )
             status = "✓" if tool.installed else "·"
             tool_list.append(
@@ -291,22 +319,22 @@ class ToolsTab(Static):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class EnvironmentsTab(Static):
-    """Environments — Podman Desktop, Distrobox, Lima."""
+    """Environments - Podman Desktop, Distrobox, Lima."""
 
     DEFAULT_CSS = "EnvironmentsTab { height: auto; }"
 
     def compose(self) -> ComposeResult:
         yield AdwPreferencesGroup(
-            "Tier 1 — Podman Desktop",
-            AdwPropertyRow("Status", "Checking…", id="env-podman"),
+            "Tier 1 - Podman Desktop",
+            AdwPropertyRow("Status", "Checking...", id="env-podman"),
         )
         yield AdwPreferencesGroup(
-            "Tier 2 — Distrobox",
-            AdwPropertyRow("Containers", "Checking…", id="env-distrobox"),
+            "Tier 2 - Distrobox",
+            AdwPropertyRow("Containers", "Checking...", id="env-distrobox"),
         )
         yield AdwPreferencesGroup(
-            "Tier 3 — Lima",
-            AdwPropertyRow("VMs", "Checking…", id="env-lima"),
+            "Tier 3 - Lima",
+            AdwPropertyRow("VMs", "Checking...", id="env-lima"),
             AdwButtonRow("Set Up Lima VM", id="btn-lima-setup"),
         )
 
@@ -316,7 +344,7 @@ class EnvironmentsTab(Static):
     async def _load(self) -> None:
         import shutil
         self.query_one("#env-podman", AdwPropertyRow).update_value(
-            "✓ installed" if shutil.which("podman-desktop") else "— not installed"
+            "✓ installed" if shutil.which("podman-desktop") else "- not installed"
         )
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -331,9 +359,9 @@ class EnvironmentsTab(Static):
                     f"{len(lines)} container(s)" if lines else "none"
                 )
             else:
-                self.query_one("#env-distrobox", AdwPropertyRow).update_value("— unavailable")
+                self.query_one("#env-distrobox", AdwPropertyRow).update_value("- unavailable")
         except FileNotFoundError:
-            self.query_one("#env-distrobox", AdwPropertyRow).update_value("— not installed")
+            self.query_one("#env-distrobox", AdwPropertyRow).update_value("- not installed")
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -345,12 +373,12 @@ class EnvironmentsTab(Static):
             if proc.returncode == 0 and stdout.strip():
                 vms = [v for v in stdout.decode().strip().split("\n") if v]
                 self.query_one("#env-lima", AdwPropertyRow).update_value(
-                    f"{len(vms)} VM(s) — {vms[0]}"
+                    f"{len(vms)} VM(s) - {vms[0]}"
                 )
             else:
-                self.query_one("#env-lima", AdwPropertyRow).update_value("— not set up")
+                self.query_one("#env-lima", AdwPropertyRow).update_value("- not set up")
         except FileNotFoundError:
-            self.query_one("#env-lima", AdwPropertyRow).update_value("— not installed")
+            self.query_one("#env-lima", AdwPropertyRow).update_value("- not installed")
 
     def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
         if event.row.id == "btn-lima-setup":
@@ -362,7 +390,7 @@ class EnvironmentsTab(Static):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DevModeScreen(Screen[None]):
-    """Developer Mode — kits, tools, environments, devmode toggle."""
+    """Developer Mode - kits, tools, environments, devmode toggle."""
 
     BINDINGS = [
         Binding("enter", "install_selected_tool", "Install"),
@@ -382,7 +410,7 @@ class DevModeScreen(Screen[None]):
         with ScrollableContainer(id="devmode-header"):
             yield AdwPreferencesGroup(
                 "Developer Mode",
-                AdwPropertyRow("Status", "Checking…", id="devmode-status"),
+                AdwPropertyRow("Status", "Checking...", id="devmode-status"),
                 AdwPropertyRow("Groups", "",           id="devmode-groups"),
                 AdwSwitchRow(
                     "Enable Developer Mode",
@@ -470,7 +498,7 @@ class DevModeScreen(Screen[None]):
                 if rc == 0:
                     self.notify("Developer mode enabled. Log out to apply.", title="DevMode")
             else:
-                # User cancelled — revert switch
+                # User cancelled - revert switch
                 self.query_one("#devmode-switch", AdwSwitchRow).set_value(False)
         else:
             confirmed = await self.app.push_screen_wait(
@@ -492,7 +520,7 @@ class DevModeScreen(Screen[None]):
                 if rc == 0:
                     self.notify("Developer mode disabled. Log out to apply.", title="DevMode")
             else:
-                # User cancelled — revert switch
+                # User cancelled - revert switch
                 self.query_one("#devmode-switch", AdwSwitchRow).set_value(True)
 
         # Always refresh status
@@ -501,6 +529,43 @@ class DevModeScreen(Screen[None]):
     # ─────────────────────────────────────────────────────────────────────────
     # Kit actions
     # ─────────────────────────────────────────────────────────────────────────
+
+    @work(exclusive=True)
+    async def action_install_package(self) -> None:
+        """Install the individual package selected in the Kits tab detail pane."""
+        from bluefinctl.screens._modals import ConfirmModal
+        from bluefinctl.widgets.operation_modal import OperationModal
+
+        try:
+            detail = self.query_one(KitDetailPane)
+        except NoMatches:
+            return
+        pkg = detail.selected_package()
+        if not pkg:
+            self.notify("Select an uninstalled package first", severity="warning")
+            return
+
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal(f"Install {pkg}?", f"Run: brew install {pkg}")
+        )
+        if not confirmed:
+            return
+
+        rc = await self.app.push_screen_wait(
+            OperationModal(
+                f"Installing {pkg}",
+                command=["brew", "install", pkg],
+            )
+        )
+        if rc == 0:
+            self.notify(f"{pkg} installed", title="Developer Mode")
+            # Refresh the kits tab so the checkmark updates
+            try:
+                self.query_one(KitsTab).refresh_kits()
+            except NoMatches:
+                pass
+        else:
+            self.notify(f"Failed to install {pkg}", severity="error", title="Developer Mode")
 
     @work(exclusive=True)
     async def action_activate_kit(self) -> None:
@@ -568,19 +633,29 @@ class DevModeScreen(Screen[None]):
 
     @work(exclusive=True)
     async def action_install_selected_tool(self) -> None:
-        """Install selected item depending on active tab (keybinding entry point)."""
+        """Install selected item depending on active tab and focused widget."""
         try:
             active = self.query_one(TabbedContent).active
         except NoMatches:
             return
 
         if active == "tab-kits":
-            self.action_activate_kit()
+            # If a package in the detail pane is highlighted and uninstalled, install it.
+            # Otherwise fall back to whole-kit activate.
+            try:
+                detail = self.query_one(KitDetailPane)
+                pkg = detail.selected_package()
+            except NoMatches:
+                pkg = None
+            if pkg and pkg not in (detail._installed if detail else set()):
+                self.action_install_package()
+            else:
+                self.action_activate_kit()
         elif active == "tab-tools":
             self._install_selected_tool()
 
     async def action_install_selected(self) -> None:
-        """Alias — same as action_install_selected_tool."""
+        """Alias - same as action_install_selected_tool."""
         self.action_install_selected_tool()
 
     @work(exclusive=True)
@@ -661,7 +736,7 @@ class DevModeScreen(Screen[None]):
         if rc == 0:
             self.notify("Lima VM is ready", title="Lima")
         else:
-            self.notify("Lima setup failed — see log for details", severity="error", title="Lima")
+            self.notify("Lima setup failed - see log for details", severity="error", title="Lima")
         try:
             envs = self.query_one(EnvironmentsTab)
             envs.run_worker(envs._load(), exclusive=True)

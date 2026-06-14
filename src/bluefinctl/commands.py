@@ -168,10 +168,10 @@ class ActionsProvider(Provider):
     """Quick actions available from any screen."""
 
     _ACTIONS: list[tuple[str, str, str]] = [
-        ("Update all", "action_update_now", "Trigger system update"),
-        ("Toggle focus mode", "action_toggle_focus", "Pause/resume updates"),
-        ("Enable developer mode", "action_toggle_devmode", "Toggle devmode"),
-        ("Open podman-tui", "action_launch_podman_tui", "Launch container manager"),
+        ("Update all",          "action_update_now",      "Trigger system update"),
+        ("Pause updates",       "action_toggle_focus",    "Enable focus mode"),
+        ("Enable developer mode","action_toggle_devmode", "Toggle devmode"),
+        ("Open podman-tui",     "action_launch_podman_tui","Launch container manager"),
     ]
 
     async def search(self, query: str) -> Hits:
