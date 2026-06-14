@@ -26,7 +26,7 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, Rule, Switch
+from textual.widgets import Button, Label, Rule, Switch
 
 
 class AdwPreferencesGroup(Vertical):
@@ -396,10 +396,11 @@ class AdwButtonRow(Widget):
 
     DEFAULT_CSS = """
     AdwButtonRow {
-        height: 1;
+        height: auto;
+        min-height: 1;
         background: $surface;
         padding: 0 1;
-        content-align: center middle;
+        content-align: left middle;
     }
     AdwButtonRow:hover { background: $panel; }
     AdwButtonRow.-primary { color: $primary; text-style: bold; }
@@ -410,6 +411,7 @@ class AdwButtonRow(Widget):
     def __init__(
         self,
         title: str,
+        subtitle: str = "",
         variant: str = "default",
         *,
         name: str | None = None,
@@ -419,11 +421,14 @@ class AdwButtonRow(Widget):
     ) -> None:
         super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self._title = title
+        self._subtitle = subtitle
         self._variant = variant
         if variant != "default":
             self.add_class(f"-{variant}")
 
     def render(self) -> str:
+        if self._subtitle:
+            return f"{self._title}\n{self._subtitle}"
         return self._title
 
     def on_click(self) -> None:
@@ -578,10 +583,54 @@ class AdwExpanderRow(Horizontal):
         return self._expanded
 
 
+class AdwButtonsRow(Horizontal):
+    """A row containing real Textual Button widgets, side by side.
+
+    Use for primary actions (Update Now, Check for Updates, etc.).
+    Buttons are accent-coloured per their variant.
+
+    Handle via ``on_button_pressed``, NOT ``on_adw_button_row_pressed``.
+
+    Usage::
+
+        yield AdwButtonsRow(
+            Button("Update Now", variant="primary", id="btn-update"),
+            Button("Check for Updates", id="btn-check"),
+        )
+    """
+
+    DEFAULT_CSS = """
+    AdwButtonsRow {
+        height: 3;
+        background: $surface;
+        padding: 0 1;
+        align: left middle;
+    }
+    AdwButtonsRow Button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(
+        self,
+        *buttons: Button,
+        name: str | None = None,
+        id: str | None = None,  # noqa: A002
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
+        self._buttons = list(buttons)
+
+    def compose(self) -> ComposeResult:
+        yield from self._buttons
+
+
 # Type alias for cleaner imports
 __all__ = [
     "AdwActionRow",
     "AdwButtonRow",
+    "AdwButtonsRow",
     "AdwComboRow",
     "AdwExpanderRow",
     "AdwPreferencesGroup",

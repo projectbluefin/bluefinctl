@@ -15,11 +15,10 @@ from textual.containers import Horizontal
 from textual.widgets import Static
 
 NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("system",  "System",  "1"),
-    ("updates", "Updates", "2"),
-    ("toolkit", "Toolkit", "3"),
-    ("devmode", "DevMode", "4"),
-    ("ai",      "AI",      "5"),
+    ("system",  "System",    "1"),
+    ("updates", "Updates",   "2"),
+    ("devmode", "Developer", "3"),
+    ("ai",      "AI",        "4"),
 )
 
 

@@ -138,11 +138,10 @@ class NavigationProvider(Provider):
     """Navigate between screens."""
 
     _SCREENS = [
-        ("Go to System", "system", "System info and health"),
-        ("Go to Updates", "updates", "Update strategy and focus mode"),
-        ("Go to Toolkit", "toolkit", "Kit and package management"),
-        ("Go to DevMode", "devmode", "Developer tools and environments"),
-        ("Go to AI", "ai", "AI stack management"),
+        ("Go to System",    "system",  "System info and health"),
+        ("Go to Updates",   "updates", "Update strategy and focus mode"),
+        ("Go to Developer", "devmode", "Kits, developer tools, and environments"),
+        ("Go to AI",        "ai",      "AI stack management"),
     ]
 
     async def search(self, query: str) -> Hits:

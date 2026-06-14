@@ -55,7 +55,6 @@ class BluefinCtl(App[None]):
         Binding("2", "goto('screen2')", "Screen 2", show=False),
         Binding("3", "goto('screen3')", "Screen 3", show=False),
         Binding("4", "goto('screen4')", "Screen 4", show=False),
-        Binding("5", "goto('screen5')", "Screen 5", show=False),
     ]
 
     def __init__(self, start_screen: str | None = None, **kwargs: Any) -> None:
@@ -65,9 +64,8 @@ class BluefinCtl(App[None]):
         self._screen_keys: dict[str, str] = {
             "screen1": "system",
             "screen2": "updates",
-            "screen3": "toolkit",
-            "screen4": "devmode",
-            "screen5": "ai",
+            "screen3": "devmode",
+            "screen4": "ai",
         }
 
     def _apply_system_theme(self) -> None:
@@ -82,7 +80,6 @@ class BluefinCtl(App[None]):
         from bluefinctl.screens.ai import AIScreen
         from bluefinctl.screens.devmode import DevModeScreen
         from bluefinctl.screens.system import SystemScreen
-        from bluefinctl.screens.toolkit import ToolkitScreen
         from bluefinctl.screens.updates import UpdatesScreen
 
         # Apply system theme (dark or light, with correct accent)
@@ -92,11 +89,10 @@ class BluefinCtl(App[None]):
         set_terminal_title(self.TITLE)
 
         # Register all screens
-        self.install_screen(SystemScreen(), name="system")
+        self.install_screen(SystemScreen(),  name="system")
         self.install_screen(UpdatesScreen(), name="updates")
-        self.install_screen(ToolkitScreen(), name="toolkit")
         self.install_screen(DevModeScreen(), name="devmode")
-        self.install_screen(AIScreen(), name="ai")
+        self.install_screen(AIScreen(),      name="ai")
 
         self.push_screen(self._start_screen or "system")
 

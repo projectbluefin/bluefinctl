@@ -39,6 +39,7 @@ ai = [
 
 [project.scripts]
 bluefinctl = "bluefinctl.cli:app"
+bctl = "bluefinctl.cli:app"
 
 [build-system]
 requires = ["hatchling"]
