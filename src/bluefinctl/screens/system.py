@@ -389,14 +389,24 @@ class SystemScreen(Screen[None]):
 
     async def action_system_report(self) -> None:
         import shutil
-
-        from bluefinctl.screens._modals import OperationLogModal
-        if shutil.which("ujust"):
-            await self.app.push_screen_wait(
-                OperationLogModal("System Report", ["ujust", "report"])
+        ops = self.query_one(OpsBar)
+        if not shutil.which("ujust"):
+            ops.set_idle("✗  ujust not found")
+            return
+        ops.set_running("Generating system report…")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ujust", "report",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-        else:
-            self.notify("ujust not found", severity="warning", title="Report")
+            await proc.wait()
+            if proc.returncode == 0:
+                ops.set_idle("✓  Report submitted")
+            else:
+                ops.set_idle(f"✗  Report failed (exit {proc.returncode})")
+        except Exception as e:  # noqa: BLE001
+            ops.set_idle(f"✗  {e}")
 
     def action_launch_podman_tui(self) -> None:
         import shutil
