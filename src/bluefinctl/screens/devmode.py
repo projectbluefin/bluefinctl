@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from bluefinctl.core.devmode import DevTool
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -422,7 +423,7 @@ class DevModeScreen(Screen[None]):
 
     def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
         if event.row.id == "devmode-switch":
-            self.run_worker(self.action_toggle_devmode(event.value), exclusive=True)
+            self.action_toggle_devmode(event.value)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
         if action == "install_selected_tool":
@@ -437,6 +438,7 @@ class DevModeScreen(Screen[None]):
     # Devmode toggle
     # ─────────────────────────────────────────────────────────────────────────
 
+    @work(exclusive=True)
     async def action_toggle_devmode(self, desired: bool | None = None) -> None:
         import os
 
@@ -500,6 +502,7 @@ class DevModeScreen(Screen[None]):
     # Kit actions
     # ─────────────────────────────────────────────────────────────────────────
 
+    @work(exclusive=True)
     async def action_activate_kit(self) -> None:
         """Activate or deactivate the currently selected kit."""
         from bluefinctl.core.bundles import BundleState
@@ -563,6 +566,7 @@ class DevModeScreen(Screen[None]):
     # Tool actions
     # ─────────────────────────────────────────────────────────────────────────
 
+    @work(exclusive=True)
     async def action_install_selected_tool(self) -> None:
         """Install selected item depending on active tab (keybinding entry point)."""
         try:
@@ -571,14 +575,15 @@ class DevModeScreen(Screen[None]):
             return
 
         if active == "tab-kits":
-            await self.action_activate_kit()
+            self.action_activate_kit()
         elif active == "tab-tools":
-            await self._install_selected_tool()
+            self._install_selected_tool()
 
     async def action_install_selected(self) -> None:
         """Alias — same as action_install_selected_tool."""
-        await self.action_install_selected_tool()
+        self.action_install_selected_tool()
 
+    @work(exclusive=True)
     async def _install_selected_tool(self) -> None:
         from bluefinctl.core.devmode import install_dev_tool_steps
         from bluefinctl.screens._modals import ConfirmModal
@@ -612,6 +617,7 @@ class DevModeScreen(Screen[None]):
         else:
             self.notify(f"Failed to install {tool.name}", severity="error", title="DevMode")
 
+    @work(exclusive=True)
     async def action_install_all(self) -> None:
         from bluefinctl.core.devmode import install_missing_dev_tools_steps
         from bluefinctl.screens._modals import ConfirmModal
@@ -645,6 +651,7 @@ class DevModeScreen(Screen[None]):
         else:
             self.notify("podman-tui not installed", severity="warning")
 
+    @work(exclusive=True)
     async def action_lima_setup(self) -> None:
         from bluefinctl.core.devmode import lima_setup_steps
         from bluefinctl.widgets.operation_modal import OperationModal

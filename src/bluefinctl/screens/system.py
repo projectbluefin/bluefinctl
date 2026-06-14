@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
@@ -222,11 +223,11 @@ class SystemScreen(Screen[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
         if btn_id == "btn-update-all":
-            self.run_worker(self._do_update_all(), exclusive=True)
+            self._do_update_all()
         elif btn_id == "btn-devmode":
-            self.run_worker(self.action_toggle_devmode(), exclusive=True)
+            self.action_toggle_devmode()
         elif btn_id == "btn-report":
-            self.run_worker(self.action_system_report(), exclusive=True)
+            self.action_system_report()
         elif btn_id == "btn-podman-tui":
             self.action_launch_podman_tui()
         elif btn_id in ("btn-op-confirm", "btn-op-cancel"):
@@ -236,27 +237,22 @@ class SystemScreen(Screen[None]):
     def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
         btn_id = event.row.id
         if btn_id == "btn-rollback":
-            self.run_worker(self._do_rollback(), exclusive=True)
+            self._do_rollback()
 
     def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
         if event.row.id == "channel-testing-switch":
-            self.run_worker(
-                self._switch_channel("testing" if event.value else "stable"),
-                exclusive=True,
-            )
+            self._switch_channel("testing" if event.value else "stable")
 
     def on_rollback_calendar_date_selected(
         self, event: RollbackCalendar.DateSelected
     ) -> None:
-        self.run_worker(
-            self._rollback_to(event.image_ref, label=str(event.date)),
-            exclusive=True,
-        )
+        self._rollback_to(event.image_ref, label=str(event.date))
 
     # ─────────────────────────────────────────────────────────────────────────
     # Operations (all inline — no OperationModal)
     # ─────────────────────────────────────────────────────────────────────────
 
+    @work(exclusive=True)
     async def _do_update_all(self) -> None:
         import shutil
         ops = self.query_one(OpsBar)
@@ -278,6 +274,7 @@ class SystemScreen(Screen[None]):
         except Exception as e:  # noqa: BLE001
             ops.set_idle(f"✗  {e}")
 
+    @work(exclusive=True)
     async def _switch_channel(self, channel: str) -> None:
         ops = self.query_one(OpsBar)
         ops.set_running(f"Switching to {channel}…")
@@ -303,10 +300,12 @@ class SystemScreen(Screen[None]):
             # Revert toggle to actual state
             self.run_worker(self._load_identity())
 
+    @work(exclusive=True)
     async def _do_rollback(self) -> None:
         ops = self.query_one(OpsBar)
         ops.set_confirm("Roll back to previous build?", "rollback")
 
+    @work(exclusive=True)
     async def _rollback_to(self, image_ref: str, label: str = "") -> None:
         ops = self.query_one(OpsBar)
         what = label or image_ref
@@ -317,10 +316,11 @@ class SystemScreen(Screen[None]):
         ops = self.query_one(OpsBar)
         op  = ops.pending_op or ""
         if op == "rollback":
-            self.run_worker(self._exec_rollback(None), exclusive=True)
+            self._exec_rollback(None)
         elif op.startswith("rollback:"):
-            self.run_worker(self._exec_rollback(op.split(":", 1)[1]), exclusive=True)
+            self._exec_rollback(op.split(":", 1)[1])
 
+    @work(exclusive=True)
     async def _exec_rollback(self, image_ref: str | None) -> None:
         ops = self.query_one(OpsBar)
         ops.set_running("Rolling back…")
@@ -347,8 +347,9 @@ class SystemScreen(Screen[None]):
     # ─────────────────────────────────────────────────────────────────────────
 
     async def action_update_all(self) -> None:
-        await self._do_update_all()
+        self._do_update_all()
 
+    @work
     async def action_toggle_devmode(self) -> None:
         import os
 
@@ -387,6 +388,7 @@ class SystemScreen(Screen[None]):
                 if rc == 0:
                     self.notify("Developer mode enabled. Log out to apply.", title="DevMode")
 
+    @work(exclusive=True)
     async def action_system_report(self) -> None:
         import shutil
         ops = self.query_one(OpsBar)

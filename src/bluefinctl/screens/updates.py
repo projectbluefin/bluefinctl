@@ -15,6 +15,7 @@ import contextlib
 import json
 from pathlib import Path
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -328,7 +329,7 @@ class UpdatesScreen(Screen[None]):
     def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
         row_id = event.row.id
         if row_id == "focus-switch":
-            self.run_worker(self._toggle_focus(event.value), exclusive=True)
+            self._toggle_focus(event.value)
         elif row_id in ("layer-os", "layer-flatpak", "layer-brew"):
             layer_map = {
                 "layer-os":      "bootc",
@@ -345,31 +346,26 @@ class UpdatesScreen(Screen[None]):
     def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
         btn_id = event.row.id
         if btn_id in ("sched-auto", "sched-notify", "sched-manual"):
-            self.run_worker(self._apply_schedule(btn_id), exclusive=True)
+            self._apply_schedule(btn_id)
         elif btn_id == "btn-stable":
-            self.run_worker(self._switch_channel("stable"))
+            self._switch_channel("stable")
         elif btn_id == "btn-testing":
-            self.run_worker(self._switch_channel("testing"))
+            self._switch_channel("testing")
         elif btn_id == "btn-rollback":
-            self.run_worker(self._confirm_rollback())
+            self._confirm_rollback()
         elif btn_id == "btn-snooze-1h":
-            self.run_worker(self._snooze(1, "for 1 hour"), exclusive=True)
+            self._snooze(1, "for 1 hour")
         elif btn_id == "btn-snooze-tonight":
-            self.run_worker(
-                self._snooze(self._hours_until_tonight(), "until tonight"), exclusive=True
-            )
+            self._snooze(self._hours_until_tonight(), "until tonight")
         elif btn_id == "btn-snooze-tomorrow":
-            self.run_worker(
-                self._snooze(self._hours_until_tomorrow(), "until tomorrow morning"),
-                exclusive=True,
-            )
+            self._snooze(self._hours_until_tomorrow(), "until tomorrow morning")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
         if btn_id == "btn-update-now":
-            self.run_worker(self.action_update_now(), exclusive=True)
+            self.action_update_now()
         elif btn_id == "btn-check":
-            self.run_worker(self._check_for_updates(), exclusive=True)
+            self._check_for_updates()
         elif btn_id == "btn-op-cancel":
             self._set_idle("Ready")
         elif btn_id == "btn-op-confirm":
@@ -379,6 +375,7 @@ class UpdatesScreen(Screen[None]):
     # Operations
     # ─────────────────────────────────────────────────────────────────────────
 
+    @work(exclusive=True)
     async def action_update_now(self) -> None:
         """Run uupd and show indeterminate progress in the OpsBar."""
         import shutil
@@ -403,6 +400,7 @@ class UpdatesScreen(Screen[None]):
         except Exception as e:  # noqa: BLE001
             self._set_idle(f"✗  {e}")
 
+    @work(exclusive=True)
     async def _check_for_updates(self) -> None:
         self._set_running("Checking for updates…")
         try:
@@ -415,6 +413,7 @@ class UpdatesScreen(Screen[None]):
         except Exception as e:  # noqa: BLE001
             self._set_idle(f"✗  {e}")
 
+    @work(exclusive=True)
     async def _apply_schedule(self, row_id: str) -> None:
         from bluefinctl.core.updates import UpdateStrategy, set_update_strategy
         strategy_map = {
@@ -436,6 +435,7 @@ class UpdatesScreen(Screen[None]):
         except Exception as e:  # noqa: BLE001
             self._set_idle(f"✗  {e}")
 
+    @work(exclusive=True)
     async def _toggle_focus(self, on: bool) -> None:
         from bluefinctl.core.updates import activate_focus_mode, deactivate_focus_mode
         if on:
@@ -445,19 +445,21 @@ class UpdatesScreen(Screen[None]):
             await deactivate_focus_mode()
             self._set_idle("▶  Updates resumed")
 
+    @work(exclusive=True)
     async def _snooze(self, hours: int, label: str) -> None:
         from bluefinctl.core.updates import activate_focus_mode
         await activate_focus_mode(duration_hours=hours)
         self.query_one("#focus-switch", AdwSwitchRow).set_value(True)
         self._set_idle(f"⏸  Updates snoozed {label}")
 
+    @work(exclusive=True)
     async def _switch_channel(self, channel: str) -> None:
         """Switch the bootc image channel after showing a confirm dialog."""
         from bluefinctl.core.system import get_system_info
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
         try:
             info = await get_system_info()
-            base_ref = info.clean_image_ref  # e.g. ghcr.io/projectbluefin/dakota (no tag)
+            base_ref = info.clean_image_ref
             if not base_ref:
                 self.notify("Cannot determine current image ref", severity="error")
                 return
@@ -482,6 +484,7 @@ class UpdatesScreen(Screen[None]):
             self.notify(f"Switched to {channel} stream. Reboot to apply.", title="Stream")
             self.run_worker(self._load(), exclusive=True)
 
+    @work(exclusive=True)
     async def _confirm_rollback(self) -> None:
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
         confirmed = await self.app.push_screen_wait(
@@ -504,14 +507,14 @@ class UpdatesScreen(Screen[None]):
     # Keybinding actions
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def action_channel_stable(self) -> None:
-        await self._switch_channel("stable")
+    def action_channel_stable(self) -> None:
+        self._switch_channel("stable")
 
-    async def action_channel_testing(self) -> None:
-        await self._switch_channel("testing")
+    def action_channel_testing(self) -> None:
+        self._switch_channel("testing")
 
-    async def action_rollback(self) -> None:
-        await self._confirm_rollback()
+    def action_rollback(self) -> None:
+        self._confirm_rollback()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Bottom bar helpers
