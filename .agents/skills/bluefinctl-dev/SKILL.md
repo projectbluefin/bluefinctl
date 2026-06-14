@@ -8,6 +8,10 @@ description: >-
   (System, Updates, Developer, AI), ADW widget library, OpsBar, @work pattern,
   bootc image ref handling, and all non-obvious Textual behaviors discovered
   in this codebase.
+metadata:
+  context7-sources:
+    - /textualize/textual
+    - /tiangolo/typer
 ---
 
 # bluefinctl Development

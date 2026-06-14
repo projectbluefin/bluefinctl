@@ -8,6 +8,8 @@ description: >-
   expansion, pkexec stdout, OSC progress, dark/light theming, and more.
 metadata:
   type: reference
+  context7-sources:
+    - /textualize/textual
 ---
 
 # Textual Development Patterns

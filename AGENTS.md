@@ -34,8 +34,27 @@ Use `resolve-library-id` + `query-docs` automatically whenever the task involves
 - API syntax, method signatures, or configuration options
 - Code generation using a specific library
 - Setup, installation, or migration steps
+- **Updating a skill file that covers a library** — fetch current docs before committing
 
-Do not rely on training data for library APIs — call Context7 first.
+Do not rely on training data for library APIs — call Context7 first. This is unconditional.
+
+When updating skill files, embed verified patterns and note the library ID in frontmatter:
+```yaml
+metadata:
+  context7-sources:
+    - /textualize/textual
+```
+
+## Skill quality standard
+
+All skill files must meet the [`/addyosmani/agent-skills`](https://context7.com/addyosmani/agent-skills) spec (benchmark 85.67):
+
+```
+✓ Frontmatter: name + description with "Use when" trigger phrases
+✓ ## When to Use  +  ## When NOT to Use
+✓ ## Red Flags  (concrete anti-patterns)
+✓ ## Verification  (exit criteria checklist)
+```
 
 ## Four-screen navigation
 

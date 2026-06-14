@@ -4,9 +4,12 @@ description: >-
   The skill-improvement mandate — every agent session must produce a skill
   file update alongside the work. Use when completing a task and deciding
   whether to write a skill update, or when creating or updating a skill file.
-  Covers what counts as a learning, where it lives, and how to commit it.
+  Covers what counts as a learning, Context7 documentation freshness, the
+  canonical skill spec, and how to commit.
 metadata:
   type: procedure
+  context7-sources:
+    - /addyosmani/agent-skills
 ---
 
 # Skill Improvement Mandate
@@ -110,6 +113,43 @@ git commit -m "docs(skills): add @work pattern for push_screen_wait"
 ```
 
 Commit message for skill-only updates uses `docs(skills):` prefix.
+
+## Context7 freshness rule
+
+Whenever a skill file you are updating covers a named library, framework, or tool, verify the technical content against current docs before committing:
+
+```
+DETECT → FETCH → EMBED → CITE
+```
+
+1. **DETECT** — what library/tool does this skill cover?
+2. **FETCH** — `resolve-library-id` → `query-docs` for the specific pattern being documented
+3. **EMBED** — put the verified example directly in the skill file
+4. **CITE** — add `context7-sources` to the frontmatter
+
+```yaml
+metadata:
+  type: reference
+  context7-sources:
+    - /textualize/textual
+```
+
+## Canonical skill spec
+
+All skill files must meet the [`/addyosmani/agent-skills`](https://context7.com/addyosmani/agent-skills) standard
+(benchmark score 85.67 — highest-rated skill improvement source):
+
+```
+✓ Frontmatter: name + description with "Use when" trigger phrases
+✓ ## When to Use  (triggering conditions)
+✓ ## When NOT to Use  (exclusions)
+✓ ## Core Process  (numbered workflow)
+✓ ## Common Rationalizations  (excuses + rebuttals)
+✓ ## Red Flags  (concrete anti-patterns)
+✓ ## Verification  (exit criteria checklist)
+```
+
+Before closing a session that updated any skill, check each file against this spec. Missing Red Flags and Verification are the most common gaps.
 
 ## Red Flags
 
