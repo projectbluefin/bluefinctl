@@ -1,6 +1,6 @@
 # bluefinctl
 
-> Keyboard-driven TUI control panel for [Bluefin OS](https://projectbluefin.io) —
+> Keyboard-driven TUI control panel for [Bluefin OS](https://projectbluefin.io) --
 > system identity, updates, developer tooling, and AI workstation management,
 > all from one beautiful terminal dashboard.
 
@@ -12,7 +12,7 @@ Built on [Textual](https://textual.textualize.io/). Matches your GNOME accent co
 
 ## Install
 
-### Recommended — pipx (stays isolated, auto-updates with `pipx upgrade bluefinctl`)
+### Recommended -- pipx (stays isolated, auto-updates with `pipx upgrade bluefinctl`)
 
 ```bash
 pipx install bluefinctl
@@ -37,7 +37,7 @@ brew install bluefinctl
 ```
 
 **What the formula installs:**
-The formula uses Homebrew's `Language::Python::Virtualenv` helper — it builds an
+The formula uses Homebrew's `Language::Python::Virtualenv` helper -- it builds an
 isolated Python 3.13 virtualenv under `$(brew --prefix)/opt/bluefinctl`, installs
 `bluefinctl` and its dependencies (`textual`, `typer`, `rich`) into that virtualenv,
 and symlinks `bctl` and `bluefinctl` into `$(brew --prefix)/bin`. No pre/post-install
@@ -55,7 +55,7 @@ cd bluefinctl
 pip install -e .
 ```
 
-> **Requirements:** Python ≥ 3.13, Linux, a bootc-managed system (Bluefin, Aurora, uCore…).
+> **Requirements:** Python >= 3.13, Linux, a bootc-managed system (Bluefin, Aurora, uCore...).
 > The TUI runs anywhere; most core actions need a running Bluefin system.
 
 ---
@@ -66,20 +66,18 @@ pip install -e .
 bctl                          # Launch TUI  (bctl is an alias for bluefinctl)
 bctl --screen updates         # Jump to a screen on launch
 
-# Headless subcommands — scriptable, no TUI required
+# Headless subcommands -- scriptable, no TUI required
 bctl status                   # Print system info
-bctl update                   # Full system update: OS · Flatpak · Brew · Containers
+bctl update                   # Full system update: OS, Flatpak, Brew, Containers
 bctl update --check           # Check for available updates, exit 0/1
 bctl devmode on|off|status    # Toggle developer mode
-bctl kit list|install <name>  # Manage Brewfile-based tool collections
-bctl ai list|deploy <stack>   # GPU-accelerated AI stack management
 ```
 
 ---
 
 ## Screens
 
-Navigate with the tab bar at the top (libadwaita AdwViewSwitcher style) or number keys **1–3**.
+Navigate with the tab bar at the top (libadwaita AdwViewSwitcher style) or number keys **1-3**.
 
 | # | Screen | What it does |
 |---|--------|-------------|
@@ -89,22 +87,22 @@ Navigate with the tab bar at the top (libadwaita AdwViewSwitcher style) or numbe
 
 ---
 
-## `bctl update` — the geek-fest updater
+## `bctl update` -- the geek-fest updater
 
 Replaces `ujust update` with a beautiful terminal ceremony:
 
 ```
-  ✓ System Image  ━━━━━━━━━━━━━━━━━━━━  19/19  ↓ 3.2 GB  ·  staged — reboot when ready  0:05:43
-  ✓ Flatpak       ━━━━━━━━━━━━━━━━━━━━   4/4   4 apps updated                            0:00:23
-  ✓ Homebrew      ━━━━━━━━━━━━━━━━━━━━   1/1   2 formulae upgraded                       0:01:12
-  ✓ Containers    ━━━━━━━━━━━━━━━━━━━━   1/1   already up to date                        0:00:03
+  ok  System Image    [====================]  19/19  3.2 GB  staged -- reboot when ready  0:05:43
+  ok  Flatpak         [====================]   4/4   4 apps updated                       0:00:23
+  ok  Homebrew        [====================]   1/1   2 formulae upgraded                  0:01:12
+  ok  Containers      [====================]   1/1   already up to date                   0:00:03
 ```
 
-- **bootc `--progress-fd`** — machine-readable JSON layer progress: layer count and bytes transferred across all pulled layers
-- **Parallel second phase** — Flatpak + Brew + Containers run concurrently after the OS image; each row resolves independently
-- **Rich Progress bars** — each task row updates in-place via cursor-up; no scroll, no mess, correct width on any terminal
-- **OSC 9;4** — progress bar in your terminal tab (Ghostty, Ptyxis, iTerm2, WezTerm)
-- **OSC title** — tab title tracks the current stage (`Pulling 14/19 · Importing · Done ✓`)
+- **bootc `--progress-fd`** -- machine-readable JSON layer progress: layer count and bytes transferred across all pulled layers
+- **Parallel second phase** -- Flatpak, Brew, and Containers run concurrently after the OS image; each row resolves independently
+- **Rich Progress bars** -- each task row updates in-place via cursor-up; no scroll, no mess, correct width on any terminal
+- **OSC 9;4** -- progress bar in your terminal tab (Ghostty, Ptyxis, iTerm2, WezTerm)
+- **OSC title** -- tab title tracks the current stage
 
 ---
 
@@ -115,7 +113,7 @@ Replaces `ujust update` with a beautiful terminal ceremony:
 | **GNOME Theming** | Reads accent color + color-scheme, applies live across the UI |
 | **Unified Progress** | Every subprocess streams behind the same OpsBar with spinner + bar |
 | **Focus Mode** | Pause updates for 1h / tonight / tomorrow / indefinitely |
-| **Channel Switch** | stable ↔ testing with confirmation; rollback calendar |
+| **Channel Switch** | stable to testing with confirmation; rollback calendar |
 | **OSC integration** | Progress in terminal tab, title tracks current operation |
 | **Headless CLI** | Every TUI action has a `bctl <subcommand>` scriptable path |
 | **Agentic-ready** | AGENTS.md + skill files designed for AI-driven development |
@@ -126,9 +124,9 @@ Replaces `ujust update` with a beautiful terminal ceremony:
 
 ```
 src/bluefinctl/
-├── app.py               Textual App — screens, theme, keybinds
-├── cli.py               Typer CLI — headless path for every operation
-├── core/                Business logic — NO Textual imports, fully testable
+├── app.py               Textual App -- screens, theme, keybinds
+├── cli.py               Typer CLI -- headless path for every operation
+├── core/                Business logic -- NO Textual imports, fully testable
 │   ├── updates.py       bootc status, strategy, focus mode, reboot
 │   ├── update_runner.py bctl update orchestration (bootc + parallel stages)
 │   ├── update_app.py    Rich Progress CLI renderer for bctl update
@@ -163,7 +161,7 @@ mypy src/
 
 ### Contributing
 
-1. Read `AGENTS.md` — it has the full operating contract, PR rules, and human gates
+1. Read `AGENTS.md` -- it has the full operating contract, PR rules, and human gates
 2. Pick an issue labeled `queue/agent-ready`
 3. Branch from `main`, use [Conventional Commits](https://www.conventionalcommits.org/)
 4. `pytest && ruff check src/ tests/ && mypy src/` must pass before requesting review
@@ -180,7 +178,7 @@ PRs require review from [@projectbluefin/maintainers](https://github.com/orgs/pr
 
 | File | Contents |
 |------|---------|
-| [AGENTS.md](AGENTS.md) | Full agent/copilot operating contract, PR rules, human gates |
+| [AGENTS.md](AGENTS.md) | Full agent/copilot operating contract, PR rules, and human gates |
 | [docs/DESIGN.md](docs/DESIGN.md) | Architecture and screen design decisions |
 | [docs/UPDATES.md](docs/UPDATES.md) | Update management internals |
 | [docs/skills/](docs/skills/) | Per-area skill files for AI-driven development |
