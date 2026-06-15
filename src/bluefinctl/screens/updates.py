@@ -235,9 +235,10 @@ class UpdatesScreen(Screen[None]):
             status = await get_update_status()
 
             label = {
-                UpdateStrategy.AUTOMATIC: "sched-auto",
-                UpdateStrategy.NOTIFY:    "sched-notify",
-                UpdateStrategy.MANUAL:    "sched-manual",
+                UpdateStrategy.AUTOMATIC:  "sched-auto",
+                UpdateStrategy.NOTIFY:     "sched-notify",
+                UpdateStrategy.MANUAL:     "sched-manual",
+                UpdateStrategy.SCHEDULED:  "sched-auto",  # treated as automatic in UI
             }.get(status.strategy, "sched-auto")
             self._set_schedule_selection(label)
 
@@ -293,8 +294,7 @@ class UpdatesScreen(Screen[None]):
         for row_id, bullet in zip(ids, bullets, strict=True):
             with contextlib.suppress(Exception):
                 row = self.query_one(f"#{row_id}", AdwButtonRow)
-                row._title = bullet
-                row.refresh()
+                row.update_title(bullet)
                 if row_id == active_id:
                     row.add_class("-active")
                 else:
@@ -328,7 +328,7 @@ class UpdatesScreen(Screen[None]):
         elif btn_id == "sched-reboot-window":
             self._activate_reboot_window()
         elif btn_id == "sched-reboot-manual":
-            self._set_idle("✓  Manual reboot selected — no automatic reboots")
+            self._set_manual_reboot()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -476,6 +476,20 @@ class UpdatesScreen(Screen[None]):
                 )
             else:
                 self._set_idle("✓  Reboot on logout disabled")
+        except Exception as exc:  # noqa: BLE001
+            self._set_idle(f"✗  {exc}")
+
+    @work(exclusive=True)
+    async def _set_manual_reboot(self) -> None:
+        """Disable all automatic reboot strategies — manual reboot only."""
+        from bluefinctl.core.updates import set_reboot_on_logout, set_scheduled_reboot_window
+        self._set_running("Disabling automatic reboots…")
+        try:
+            await set_reboot_on_logout(False)
+            await set_scheduled_reboot_window(False)
+            with contextlib.suppress(Exception):
+                self.query_one("#reboot-on-logout", AdwSwitchRow).set_value(False)
+            self._set_idle("✓  Manual reboot — no automatic reboots")
         except Exception as exc:  # noqa: BLE001
             self._set_idle(f"✗  {exc}")
 

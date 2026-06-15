@@ -58,11 +58,10 @@ util/           OSC escape sequences, Ghostty detection, terminal launcher
 |-----|--------|-------------|-------|
 | 1 | `screens/system.py` | `core/system.py` | 2-col; Release Stream switch; Rollback calendar; AdwButtonsRow quick actions |
 | 2 | `screens/updates.py` | `core/updates.py` | Full-width image banner; radio schedule; staged-update alert; OpsBar footer |
-| 3 | `screens/devmode.py` | `core/devmode.py` + `core/bundles.py` | 3 tabs: Kits/Tools/Environments; devmode toggle at top; per-package install |
-| 4 | `screens/ai.py` | `core/ai.py` | 2 tabs: Stacks/Tools; GPU detection; bundled quadlet catalog |
+| 3 | `screens/devmode.py` | `core/devmode.py` | Feature portal: 2-col grid of install rows (Cloud Native + Editors + Virtualization); no tabs |
+| 4 | `screens/ai.py` | `core/ai.py` | GPU-gated; hidden when no GPU detected |
 
-Navigation items: **System · Updates · Developer · AI** (number keys 1–4).  
-Toolkit is merged into Developer Mode (tab 3 → Kits tab).
+Navigation items: **System · Updates · Developer** (number keys 1–3). AI screen (key 4) only shown when GPU is detected.
 
 ## ADW widget library — `widgets/adw.py`
 
@@ -269,6 +268,44 @@ proc1 = await asyncio.create_subprocess_exec("pkexec", "systemctl", "unmask", ..
 proc2 = await asyncio.create_subprocess_exec("pkexec", "systemctl", "enable", ...)
 ```
 
+## AdwButtonRow — updating displayed text
+
+`AdwButtonRow` renders via `render()` from `self._title`. Use the public method added in 0.1.0:
+
+```python
+row = self.query_one("#my-row", AdwButtonRow)
+row.update_title("● Active")   # ✓ public API
+# row._title = "● Active"; row.refresh()  ✗ fragile private access
+```
+
+## App-level action delegation pattern
+
+Actions registered in `ActionsProvider` (`commands.py`) are called via `app.run_action(name)`. If the action is defined on a specific `Screen` subclass rather than the `App`, it won't dispatch correctly when a different screen is active.
+
+**Pattern:** define the action on `App`, navigate to the target screen, then call the screen method:
+
+```python
+# In app.py
+def action_toggle_devmode(self) -> None:
+    self.switch_screen("system")
+    self.call_after_refresh(self._trigger_toggle_devmode)
+
+def _trigger_toggle_devmode(self) -> None:
+    from bluefinctl.screens.system import SystemScreen
+    try:
+        screen = self.get_screen("system")
+        if isinstance(screen, SystemScreen):
+            screen.action_toggle_devmode()
+    except Exception:  # noqa: BLE001
+        pass
+```
+
+All four command-palette actions (`action_update_now`, `action_system_report`, `action_toggle_devmode`, `action_launch_podman_tui`) follow this pattern.
+
+## DevMode screen — no auto-provisioning on mount
+
+Do NOT run `pkexec ujust dx-group` (or any pkexec call) in `on_mount` of DevModeScreen. It fires a polkit auth dialog every time the user switches to tab 3. Groups are provisioned by individual tool install steps, not globally at mount time.
+
 ## Red Flags
 
 - `from textual.widgets import Switch` in any file — should be `_CheckToggle`
@@ -376,7 +413,7 @@ class KitsTab(Static):
 
 
 
-- [ ] `pytest` passing (43 tests)
+- [ ] `pytest` passing (97 tests)
 - [ ] `ruff check src/ tests/` clean
 - [ ] `mypy src/` clean (strict)
 - [ ] `ghostty -e bctl &` launched and affected screen visible/functional

@@ -5,9 +5,6 @@ Design:
   Each section is an AdwPreferencesGroup presenting a named Bluefin capability.
   Install/detected state shown via inline buttons on each row.
   OpsBar shows progress for every install operation.
-
-On mount: silently runs `ujust dx-group` via pkexec (adds docker/libvirt/
-  incus-admin/dialout groups).  Invisible infrastructure — errors swallowed.
 """
 
 from __future__ import annotations
@@ -140,22 +137,8 @@ class DevModeScreen(Screen[None]):
     # ── Mount ─────────────────────────────────────────────────────────────────
 
     def on_mount(self) -> None:
-        # Silent DX group provisioning — invisible infrastructure
-        self.run_worker(self._setup_dx_groups(), exclusive=False)
         # Detect installed state and update buttons
         self.run_worker(self._detect_installed(), exclusive=False)
-
-    async def _setup_dx_groups(self) -> None:
-        """Silently provision DX groups via pkexec.  Errors are swallowed."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pkexec", "ujust", "dx-group",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-        except Exception:  # noqa: BLE001
-            pass
 
     async def _detect_installed(self) -> None:
         """Check install state for all tools and update button labels."""

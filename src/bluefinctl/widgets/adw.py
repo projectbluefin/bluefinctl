@@ -481,6 +481,11 @@ class AdwButtonRow(Widget):
         if variant != "default":
             self.add_class(f"-{variant}")
 
+    def update_title(self, title: str) -> None:
+        """Update the displayed title text."""
+        self._title = title
+        self.refresh()
+
     def render(self) -> str:
         if self._subtitle:
             return f"{self._title}\n{self._subtitle}"

@@ -143,6 +143,45 @@ class BluefinCtl(App[None]):
         from bluefinctl.screens._modals import HelpModal
         self.push_screen(HelpModal())
 
+    def action_toggle_devmode(self) -> None:
+        """Navigate to System screen and toggle developer mode."""
+        self.switch_screen("system")
+        self.call_after_refresh(self._trigger_toggle_devmode)
+
+    def _trigger_toggle_devmode(self) -> None:
+        from bluefinctl.screens.system import SystemScreen
+        try:
+            screen = self.get_screen("system")
+            if isinstance(screen, SystemScreen):
+                screen.action_toggle_devmode()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def action_launch_podman_tui(self) -> None:
+        """Launch podman-tui in a terminal window."""
+        import shutil
+
+        from bluefinctl.core.notify import system_notify
+        from bluefinctl.util.terminal import launch_in_terminal
+        if shutil.which("podman-tui"):
+            launch_in_terminal(["podman-tui"], title="podman-tui")
+        else:
+            system_notify("Containers", "podman-tui not installed", urgency="low")
+
+    def action_system_report(self) -> None:
+        """Navigate to System screen and submit a diagnostics report."""
+        self.switch_screen("system")
+        self.call_after_refresh(self._trigger_system_report)
+
+    def _trigger_system_report(self) -> None:
+        from bluefinctl.screens.system import SystemScreen
+        try:
+            screen = self.get_screen("system")
+            if isinstance(screen, SystemScreen):
+                screen.action_system_report()
+        except Exception:  # noqa: BLE001
+            pass
+
     def action_update_now(self) -> None:
         """Switch to Updates screen and trigger an update (Command Palette entry point)."""
         self.switch_screen("updates")
@@ -157,12 +196,3 @@ class BluefinCtl(App[None]):
                 screen.action_update_now()
         except Exception:  # noqa: BLE001
             pass
-
-    def action_toggle_focus(self) -> None:
-        """Switch to Updates screen and toggle focus mode (Command Palette entry point)."""
-        self.switch_screen("updates")
-        self.call_after_refresh(self._trigger_toggle_focus)
-
-    def _trigger_toggle_focus(self) -> None:
-        # Focus mode removed — reboot strategy replaces it
-        pass
