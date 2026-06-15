@@ -12,25 +12,6 @@ Built on [Textual](https://textual.textualize.io/). Matches your GNOME accent co
 
 ## Install
 
-### Recommended -- pipx (stays isolated, auto-updates with `pipx upgrade bluefinctl`)
-
-```bash
-pipx install bluefinctl
-```
-
-### Homebrew tap
-
-```bash
-brew tap projectbluefin/bluefinctl
-brew install bluefinctl
-```
-
-#### Trust (if you have `HOMEBREW_REQUIRE_TAP_TRUST` set)
-
-Homebrew 4.x introduced opt-in tap trust enforcement. If you have
-`HOMEBREW_REQUIRE_TAP_TRUST=1` in your environment, Homebrew will refuse to load
-formulae from untrusted third-party taps until you explicitly trust them:
-
 ```bash
 brew trust --tap projectbluefin/bluefinctl
 brew install bluefinctl
