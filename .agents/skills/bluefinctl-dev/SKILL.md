@@ -58,9 +58,9 @@ util/           OSC escape sequences, Ghostty detection, terminal launcher
 
 | Key | Screen | Core module | Notes |
 |-----|--------|-------------|-------|
-| 1 | `screens/system.py` | `core/system.py` | 2-col; Release Stream switch; Rollback calendar; AdwButtonsRow quick actions |
+| 1 | `screens/system.py` | `core/system.py` | 2-col; left: Image/System/Health; right: Update All → Testing switch → Rollback calendar |
 | 2 | `screens/updates.py` | `core/updates.py` | Full-width image banner; radio schedule; staged-update alert; OpsBar footer |
-| 3 | `screens/devmode.py` | `core/devmode.py` | Feature portal: 2-col grid of install rows (Cloud Native + Editors + Virtualization); no tabs |
+| 3 | `screens/devmode.py` | `core/devmode.py` | Full-width DevMode toggle at top; 2-col grid of install rows below (no reboot for tools) |
 | 4 | `screens/ai.py` | `core/ai.py` | GPU-gated; hidden when no GPU detected |
 
 Navigation items: **System · Updates · Developer** (number keys 1–3). AI screen (key 4) only shown when GPU is detected.
@@ -114,17 +114,34 @@ yield AdwButtonRow(
 
 ## Content area convention
 
+Every custom Screen **must** set `overflow: hidden hidden` in DEFAULT_CSS.
+The `Screen` base class has `overflow-y: auto`, which causes the Screen itself to scroll
+instead of the inner `ScrollableContainer`.
+
 ```python
-def compose(self) -> ComposeResult:
-    yield ViewSwitcher("myscreen")
-    with ScrollableContainer(id="adw-content"):
-        with Horizontal(classes="adw-cols"):
-            with Vertical(classes="adw-col"):
-                yield AdwPreferencesGroup(...)
-            with Vertical(classes="adw-col"):
-                yield AdwPreferencesGroup(...)
-    yield OpsBar()   # always LAST — dock: bottom
+class MyScreen(Screen[None]):
+    DEFAULT_CSS = """
+    MyScreen { layout: vertical; overflow: hidden hidden; }
+    .adw-cols { height: auto; }
+    .adw-col  { width: 1fr; height: auto; padding: 0 2; }  /* height: auto required */
+    #adw-content { height: 1fr; }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield ViewSwitcher("myscreen")
+        with ScrollableContainer(id="adw-content"):
+            with Horizontal(classes="adw-cols"):
+                with Vertical(classes="adw-col"):
+                    yield AdwPreferencesGroup(...)
+                with Vertical(classes="adw-col"):
+                    yield AdwPreferencesGroup(...)
+        yield OpsBar()   # always LAST — dock: bottom
 ```
+
+**ViewSwitcher height: 2, OpsBar height: 2.** Don’t increase them — chrome eats content rows.
+
+**App-level `Header`/`Footer` are dead chrome** when all screens are `push_screen`’d.
+Pushed screens render over the app’s base layer. Remove them from `App.compose()`.
 
 ## system_notify — zero in-app toasts
 
@@ -304,9 +321,40 @@ def _trigger_toggle_devmode(self) -> None:
 
 All four command-palette actions (`action_update_now`, `action_system_report`, `action_toggle_devmode`, `action_launch_podman_tui`) follow this pattern.
 
-## DevMode screen — no auto-provisioning on mount
+## DevMode screen — toggle at top, tools below
 
-Do NOT run `pkexec ujust dx-group` (or any pkexec call) in `on_mount` of DevModeScreen. It fires a polkit auth dialog every time the user switches to tab 3. Groups are provisioned by individual tool install steps, not globally at mount time.
+The Developer screen has a full-width `AdwSwitchRow` at the top for group membership
+(docker, mock, lxd — requires reboot). The tool install rows below it do NOT require a reboot.
+This separation is intentional and must stay clear to the user.
+
+**Idempotent toggle pattern** — read actual state first, sync switch if already in desired state:
+
+```python
+@work(exclusive=True)
+async def _toggle_devmode(self, enable: bool) -> None:
+    loop = asyncio.get_running_loop()
+    state = await loop.run_in_executor(None, _check_devmode_active)
+    if state.active == enable:          # already in desired state
+        self.query_one("#devmode-switch", AdwSwitchRow).set_value(enable)
+        return
+    # ... prompt + pkexec ...
+    # On cancel/failure — revert the switch:
+    self.query_one("#devmode-switch", AdwSwitchRow).set_value(not enable)
+```
+
+Use `set_value()` (not direct assignment) to change a switch without firing `Changed`.
+Load initial state in a separate worker on mount so the switch reflects reality:
+
+```python
+def on_mount(self) -> None:
+    self.run_worker(self._load_devmode_state(), exclusive=False)
+
+async def _load_devmode_state(self) -> None:
+    state = await loop.run_in_executor(None, _check_devmode_active)
+    self.query_one("#devmode-switch", AdwSwitchRow).set_value(state.active)
+```
+
+Do NOT call `pkexec` in `on_mount` — it fires a polkit auth dialog on every screen switch.
 
 ## GNOME HIG Quick Reference
 
@@ -339,6 +387,10 @@ Button variant mapping to HIG:
 - `info.clean_image_ref` used as display string (missing tag)
 - `height: auto` on `Horizontal` containers (expands to fill, not shrink)
 - `ScrollableContainer` that never scrolls — missing `height: 1fr` on `#adw-content`
+- Screen has no `overflow: hidden hidden` in DEFAULT_CSS — `Screen` base class has `overflow-y: auto`; pushed screens steal scroll from the inner container
+- `.adw-col` without explicit `height: auto` — `Vertical` defaults to `height: 1fr`; inside a `height: auto` Horizontal this creates a circular dependency and breaks content measurement
+- `scrollbar-gutter: stable` in any CSS — not a Textual property, silently ignored
+- App-level `Header`/`Footer` in `App.compose()` when all screens are `push_screen`’d — they live behind the screen stack and are never visible; pure dead chrome
 - `AdwActionRow` subtitles wrapping to 4+ lines — add `height: 3` + `overflow-x: hidden`
 - Hardcoded color variables (`$background`, `$surface`) in TCSS
 - `asyncio.get_event_loop()` — use `get_running_loop()` inside async functions

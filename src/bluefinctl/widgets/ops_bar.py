@@ -70,7 +70,7 @@ _MAX_TICKER = 5
 class OpsBar(Widget):
     """Persistent animated bottom bar — the single source of operation feedback.
 
-    Layout (height 3 = 1 border-top + 2 content rows):
+    Layout (height 2 = 1 border-top + 1 content row):
       Row 1: ops-label  — full-width status/progress text with Rich markup
       Row 2: (blank — used for vertical centering within the 2 content rows)
 
@@ -80,7 +80,7 @@ class OpsBar(Widget):
     DEFAULT_CSS = """
     OpsBar {
         dock: bottom;
-        height: 3;
+        height: 2;
         width: 1fr;
         background: $panel;
         border-top: solid $surface;

@@ -1,8 +1,8 @@
 """Developer screen — feature portal for Bluefin DX tools.
 
 Design:
-  Single scrollable screen. No tabs, no devmode toggle, no modals.
-  Each section is an AdwPreferencesGroup presenting a named Bluefin capability.
+  Single scrollable screen. Developer mode toggle at top (reboot required).
+  Each tool section is an AdwPreferencesGroup — tools install without rebooting.
   Install/detected state shown via inline buttons on each row.
   OpsBar shows progress for every install operation.
 """
@@ -19,7 +19,7 @@ from textual.widgets import Button
 
 from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
-from bluefinctl.widgets.adw import AdwActionRow, AdwPreferencesGroup
+from bluefinctl.widgets.adw import AdwActionRow, AdwPreferencesGroup, AdwSwitchRow
 from bluefinctl.widgets.ops_bar import OpsBar
 
 
@@ -32,17 +32,27 @@ class DevModeScreen(Screen[None]):
     """Developer — feature portal for installing and managing DX tools."""
 
     DEFAULT_CSS = """
-    DevModeScreen { layout: vertical; }
-    #adw-content  { height: 1fr; scrollbar-gutter: stable; }
+    DevModeScreen { layout: vertical; overflow: hidden hidden; }
+    #adw-content  { height: 1fr; }
     .adw-cols     { height: auto; }
-    .adw-col      { width: 1fr; padding: 0 2; }
-    DevModeScreen AdwActionRow { height: 3; }
+    .adw-col      { width: 1fr; height: auto; padding: 0 2; }
+    .devmode-top-group { margin: 0 2 1 2; }
+    DevModeScreen AdwActionRow { height: 2; }
     DevModeScreen AdwActionRow > .adw-row-content > .adw-row-subtitle { overflow-x: hidden; }
     """
 
     def compose(self) -> ComposeResult:
         yield ViewSwitcher("devmode")
         with ScrollableContainer(id="adw-content"):
+            yield AdwPreferencesGroup(
+                "Developer Mode",
+                AdwSwitchRow(
+                    "Enable Developer Mode",
+                    subtitle="Adds you to docker, mock, lxd groups — reboot required to apply",
+                    id="devmode-switch",
+                ),
+                classes="devmode-top-group",
+            )
             with Horizontal(classes="adw-cols"):
 
                 # ── Left column: Cloud Native Development ────────────────────
@@ -137,8 +147,80 @@ class DevModeScreen(Screen[None]):
     # ── Mount ─────────────────────────────────────────────────────────────────
 
     def on_mount(self) -> None:
-        # Detect installed state and update buttons
+        self.run_worker(self._load_devmode_state(), exclusive=False)
         self.run_worker(self._detect_installed(), exclusive=False)
+
+    async def _load_devmode_state(self) -> None:
+        """Read current devmode state and set the switch without firing Changed."""
+        import asyncio
+        from bluefinctl.core.devmode import _check_devmode_active
+        loop = asyncio.get_running_loop()
+        state = await loop.run_in_executor(None, _check_devmode_active)
+        self.query_one("#devmode-switch", AdwSwitchRow).set_value(state.active)
+
+    def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
+        if event.switch_row.id == "devmode-switch":
+            event.stop()
+            self._toggle_devmode(event.value)
+
+    @work(exclusive=True)
+    async def _toggle_devmode(self, enable: bool) -> None:
+        """Prompt and apply devmode group changes. Idempotent."""
+        import os
+        from bluefinctl.core.devmode import _check_devmode_active
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+
+        loop = asyncio.get_running_loop()
+        state = await loop.run_in_executor(None, _check_devmode_active)
+
+        # Already in desired state — just sync the switch and bail
+        if state.active == enable:
+            self.query_one("#devmode-switch", AdwSwitchRow).set_value(enable)
+            return
+
+        username = os.environ.get("USER", "")
+        if enable:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal(
+                    "Enable Developer Mode",
+                    f"Add {username} to groups: docker, mock, lxd?\n\nA reboot is required to apply group changes.",
+                )
+            )
+            if not confirmed:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(False)
+                return
+            cmds = " && ".join([
+                f"usermod -aG docker {username} 2>/dev/null || true",
+                f"usermod -aG mock   {username} 2>/dev/null || true",
+                f"usermod -aG lxd    {username} 2>/dev/null || true",
+            ])
+            rc = await self.app.push_screen_wait(
+                OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
+            )
+            if rc == 0:
+                system_notify("Developer Mode", "Groups added. Reboot to apply.")
+            else:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(False)
+        else:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal(
+                    "Disable Developer Mode",
+                    f"Remove {username} from groups: docker, mock, lxd?",
+                )
+            )
+            if not confirmed:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(True)
+                return
+            cmds = " && ".join([
+                f"gpasswd -d {username} docker 2>/dev/null || true",
+                f"gpasswd -d {username} mock   2>/dev/null || true",
+                f"gpasswd -d {username} lxd    2>/dev/null || true",
+            ])
+            rc = await self.app.push_screen_wait(
+                OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
+            )
+            if rc != 0:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(True)
 
     async def _detect_installed(self) -> None:
         """Check install state for all tools and update button labels."""

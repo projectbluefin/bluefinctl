@@ -31,28 +31,28 @@ class SystemScreen(Screen[None]):
     ]
 
     DEFAULT_CSS = """
-    SystemScreen { layout: vertical; }
+    SystemScreen { layout: vertical; overflow: hidden hidden; }
     .adw-cols { height: auto; }
-    .adw-col  { width: 1fr; padding: 0 2; }
-    #adw-content { height: 1fr; scrollbar-gutter: stable; }
+    .adw-col  { width: 1fr; height: auto; padding: 0 2; }
+    #adw-content { height: 1fr; }
     """
 
     def compose(self) -> ComposeResult:
         yield ViewSwitcher("system")
         with ScrollableContainer(id="adw-content"):
             with Horizontal(classes="adw-cols"):
-                # ── left column ──────────────────────────────────────────────
+                # ── left column — image identity, hardware, health ────────────
                 with Vertical(classes="adw-col"):
                     yield AdwPreferencesGroup(
-                        "System",
-                        AdwPropertyRow("Image",    "Loading…", id="sys-image"),
-                        AdwPropertyRow("Boot",     "Loading…", id="sys-boot"),
-                        AdwPropertyRow("Hostname", "Loading…", id="sys-hostname"),
+                        "Image",
+                        AdwPropertyRow("Image",   "Loading…", id="sys-image"),
+                        AdwPropertyRow("Channel", "Loading…", id="sys-channel"),
+                        AdwPropertyRow("Status",  "Loading…", id="sys-boot"),
                     )
                     yield AdwPreferencesGroup(
-                        "Hardware",
-                        AdwPropertyRow("GPU",  "Detecting…", id="sys-gpu"),
-                        AdwPropertyRow("Mode", "Loading…",   id="sys-mode"),
+                        "System",
+                        AdwPropertyRow("Hostname", "Loading…",   id="sys-hostname"),
+                        AdwPropertyRow("GPU",      "Detecting…", id="sys-gpu"),
                     )
                     yield AdwPreferencesGroup(
                         "Health",
@@ -60,18 +60,17 @@ class SystemScreen(Screen[None]):
                         AdwPropertyRow("System Services", "Checking…", id="health-system"),
                         AdwPropertyRow("Homebrew",        "Checking…", id="health-brew"),
                     )
-                    yield AdwPreferencesGroup(
-                        "Active Kits",
-                        AdwPropertyRow("Kits", "Loading…", id="sys-kits"),
-                    )
 
-                # ── right column ─────────────────────────────────────────────
+                # ── right column — updates, beta, rollback ────────────────────
                 with Vertical(classes="adw-col"):
                     yield AdwPreferencesGroup(
-                        "Release Stream",
+                        "Updates",
+                        AdwButtonsRow(
+                            Button("Update All", variant="primary", id="btn-update-all"),
+                        ),
                         AdwSwitchRow(
-                            "Opt Into [bold]Testing[/bold] Stream",
-                            subtitle="Switches to the testing image tag — reboot to apply",
+                            "Testing Stream",
+                            subtitle="Switch to the testing image tag — reboot to apply",
                             id="channel-testing-switch",
                         ),
                     )
@@ -84,18 +83,11 @@ class SystemScreen(Screen[None]):
                         ),
                         RollbackCalendar(id="rollback-calendar"),
                     )
-                    yield AdwPreferencesGroup(
-                        "Quick Actions",
-                        AdwButtonsRow(
-                            Button("Update All", variant="primary", id="btn-update-all"),
-                        ),
-                    )
         yield OpsBar()
 
     def on_mount(self) -> None:
         self.run_worker(self._load_identity(), exclusive=False)
         self.run_worker(self._load_health(),   exclusive=False)
-        self.run_worker(self._load_kits(),     exclusive=False)
         self.run_worker(self._load_update_status(), exclusive=False)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -109,17 +101,17 @@ class SystemScreen(Screen[None]):
         self.query_one("#sys-boot",     AdwPropertyRow).update_value(info.boot_status)
         self.query_one("#sys-hostname", AdwPropertyRow).update_value(info.hostname)
 
+        tag = (info.image_tag or "").lower()
+        channel = "testing ⚗" if "testing" in tag else "stable"
+        self.query_one("#sys-channel", AdwPropertyRow).update_value(channel)
+
         gpu_line = f"{info.gpu.vendor.upper()} {info.gpu.model}".strip()
         if info.gpu.vram_mb:
             gpu_line += f"  ·  {info.gpu.vram_mb // 1024} GB VRAM"
-        self.query_one("#sys-gpu",  AdwPropertyRow).update_value(gpu_line)
-        self.query_one("#sys-mode", AdwPropertyRow).update_value(
-            "Developer" if info.devmode else "Standard"
-        )
+        self.query_one("#sys-gpu", AdwPropertyRow).update_value(gpu_line)
 
         # Release Stream toggle reflects actual channel
-        is_testing = "testing" in (info.image_tag or "").lower()
-        self.query_one("#channel-testing-switch", AdwSwitchRow).set_value(is_testing)
+        self.query_one("#channel-testing-switch", AdwSwitchRow).set_value("testing" in tag)
 
         # Rollback calendar
         import contextlib
@@ -176,19 +168,6 @@ class SystemScreen(Screen[None]):
             brew_status = "✗ not installed"
         self.query_one("#health-brew", AdwPropertyRow).update_value(brew_status)
 
-    async def _load_kits(self) -> None:
-        from bluefinctl.core.bundles import BundleState, get_bundles
-        try:
-            bundles = await get_bundles()
-            active = [b for b in bundles if b.state in (BundleState.BASE, BundleState.ACTIVE)]
-            if active:
-                names  = ", ".join(b.name for b in active[:4])
-                suffix = f" +{len(active) - 4} more" if len(active) > 4 else ""
-                self.query_one("#sys-kits", AdwPropertyRow).update_value(f"{names}{suffix}")
-            else:
-                self.query_one("#sys-kits", AdwPropertyRow).update_value("None active")
-        except Exception:  # noqa: BLE001
-            self.query_one("#sys-kits", AdwPropertyRow).update_value("unavailable")
 
     async def _load_update_status(self) -> None:
         """Show last update check result in the OpsBar."""

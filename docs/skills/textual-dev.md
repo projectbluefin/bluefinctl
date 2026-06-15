@@ -173,17 +173,22 @@ def compose(self) -> ComposeResult:
     yield OpsBar()   # always LAST
 ```
 
-**`#adw-content` MUST have `height: 1fr` in the screen's `DEFAULT_CSS` or it will expand
-to fit content and never scroll.** Add `scrollbar-gutter: stable` to prevent layout shift.
+**`#adw-content` MUST have `height: 1fr`** or it will expand to fit content and never scroll.
+
+**`scrollbar-gutter: stable` is not a valid Textual CSS property — do not use it.** It is silently ignored.
+
+**The Screen base class has `overflow-y: auto`** which causes the Screen itself to scroll instead
+of the inner `ScrollableContainer`. Always set `overflow: hidden hidden` on every custom Screen
+subclass to prevent this:
 
 ```css
-#adw-content {
-    height: 1fr;
-    scrollbar-gutter: stable;
-}
+MyScreen { layout: vertical; overflow: hidden hidden; }
+#adw-content { height: 1fr; }
 ```
 
-For two-column layouts inside `#adw-content`:
+For two-column layouts inside `#adw-content`, `.adw-col` **must** have explicit `height: auto`.
+Without it, `Vertical` defaults to `height: 1fr`, which inside a `height: auto` Horizontal
+creates a circular dependency that breaks content measurement:
 
 ```python
 with ScrollableContainer(id="adw-content"):
@@ -196,7 +201,7 @@ with ScrollableContainer(id="adw-content"):
 
 ```css
 .adw-cols { height: auto; }
-.adw-col  { width: 1fr; padding: 0 2; }
+.adw-col  { width: 1fr; height: auto; padding: 0 2; }  /* height: auto is required */
 ```
 
 OpsBar uses `dock: bottom` and must be the last child.
@@ -554,7 +559,8 @@ Before adding any new widget:
 | `push_screen_wait` without `@work` | Add `@work(exclusive=True)` to the calling method |
 | `info.clean_image_ref` shown to users (no tag) | Use `info.full_clean_ref` for display |
 | `height: auto` on Horizontal fills terminal | Use `height: N` or `height: 1fr` |
-| `ScrollableContainer` never scrolls | Missing `height: 1fr` on `#adw-content` in `DEFAULT_CSS` |
+| `ScrollableContainer` never scrolls | Missing `height: 1fr` on `#adw-content`; or Screen has `overflow-y: auto` stealing scroll — add `overflow: hidden hidden` to Screen DEFAULT_CSS |
+| `.adw-col` not sizing to content | Must set `height: auto` explicitly — `Vertical` default `height: 1fr` inside `height: auto` Horizontal creates circular dependency |
 | Long `AdwActionRow` subtitles wrap — rows 4+ lines tall | Add `height: 3` + `overflow-x: hidden` on subtitle per-screen |
 | `self.notify()` anywhere in the app | Banned — use `system_notify()` from `core/notify.py` |
 | `Console()` in Textual screen/widget | Console writes to stdout and garbles TUI |

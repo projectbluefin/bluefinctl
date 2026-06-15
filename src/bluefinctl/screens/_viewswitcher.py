@@ -29,7 +29,7 @@ class ViewSwitcherTab(Static):
     DEFAULT_CSS = """
     ViewSwitcherTab {
         width: 1fr;
-        height: 3;
+        height: 2;
         content-align: center middle;
         color: $text-muted;
     }
@@ -68,7 +68,7 @@ class ViewSwitcher(Horizontal):
 
     DEFAULT_CSS = """
     ViewSwitcher {
-        height: 3;
+        height: 2;
         width: 1fr;
         background: $surface;
         border-bottom: solid $panel;

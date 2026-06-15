@@ -41,7 +41,7 @@ class UpdatesScreen(Screen[None]):
     ]
 
     DEFAULT_CSS = """
-    UpdatesScreen { layout: vertical; }
+    UpdatesScreen { layout: vertical; overflow: hidden hidden; }
 
     /* Full-width image banner */
     #image-banner {
@@ -68,12 +68,11 @@ class UpdatesScreen(Screen[None]):
 
     /* Two-column layout */
     .adw-cols  { height: auto; }
-    .adw-col   { width: 1fr; padding: 0 2; }
+    .adw-col   { width: 1fr; height: auto; padding: 0 2; }
 
     /* Scrollable content area — always show vertical scrollbar */
     #adw-content {
         height: 1fr;
-        scrollbar-gutter: stable;
     }
 
     /* Schedule radio rows — active selection highlighted */

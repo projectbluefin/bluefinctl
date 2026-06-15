@@ -16,16 +16,6 @@ Screen {
     color: $text;
 }
 
-Header {
-    background: $surface;
-    color: $accent;
-    text-style: bold;
-}
-
-Footer {
-    background: $surface;
-}
-
 /* ──────────────────────────────────────────────
    ViewSwitcher Navigation (libadwaita AdwViewSwitcher)
    ────────────────────────────────────────────── */
@@ -277,6 +267,6 @@ LogView {
 #adw-content {
     width: 1fr;
     height: 1fr;
-    overflow-y: auto;
+    overflow: hidden auto;
     padding: 0 1;
 }

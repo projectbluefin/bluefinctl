@@ -15,7 +15,6 @@ from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header
 
 from bluefinctl.commands import ActionsProvider, NavigationProvider, PackageProvider
 from bluefinctl.theme.accent import build_theme, get_accent_color, get_color_scheme
@@ -120,9 +119,9 @@ class BluefinCtl(App[None]):
             pass  # gsettings not available (non-GNOME system)
 
     def compose(self) -> ComposeResult:
-        """App chrome — header with system identity."""
-        yield Header(show_clock=True)
-        yield Footer()
+        """App chrome — screens handle their own nav and status bars."""
+        return
+        yield  # type: ignore[misc]  # ponytail: empty generator
 
     @property
     def is_bootc(self) -> bool:
