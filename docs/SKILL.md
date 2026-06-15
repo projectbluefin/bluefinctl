@@ -33,6 +33,9 @@ Agent entry point for `projectbluefin/bluefinctl`. Load only the skill(s) that m
 | Work with devmode (groups, Lima, distrobox) | `.agents/skills/bluefinctl-dev/SKILL.md` |
 | **Testing** | |
 | Write or run tests (pytest, asyncio, Textual snapshots) | `AGENTS.md` + `docs/skills/textual-dev.md` |
+| **Release and packaging** | |
+| Debug `brew install` failures, update formula, cut a release | `docs/skills/homebrew-packaging.md` |
+| Modify the release workflow or tap structure | `docs/skills/homebrew-packaging.md` |
 | **Gap tracking** | |
 | Find what's not yet implemented, what's broken, or what to work on next | `docs/skills/gap-tracker.md` |
 | **Factory and improvement** | |
