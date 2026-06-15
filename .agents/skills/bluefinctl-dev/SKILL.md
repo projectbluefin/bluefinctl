@@ -125,23 +125,71 @@ def compose(self) -> ComposeResult:
     yield OpsBar()   # always LAST — dock: bottom
 ```
 
-## OpsBar — persistent bottom bar
+## system_notify — zero in-app toasts
 
 ```python
-from bluefinctl.widgets.ops_bar import OpsBar
-
-self.query_one(OpsBar).set_idle("✓  Up to date")
-self.query_one(OpsBar).set_running("Updating…", stage=1)
-self.query_one(OpsBar).set_complete("✓  Done")
-self.query_one(OpsBar).set_confirm("Roll back?", "rollback")
-
-# Confirm/cancel wired via on_button_pressed:
-def on_button_pressed(self, event: Button.Pressed) -> None:
-    if event.button.id == "btn-op-confirm":
-        op = self.query_one(OpsBar).pending_op   # "rollback", etc.
-    elif event.button.id == "btn-op-cancel":
-        self.query_one(OpsBar).set_idle("Ready")
+from bluefinctl.core.notify import system_notify
+system_notify("Operation complete", "Details here")
+system_notify("Failed", "brew exited 1", urgency="critical")
 ```
+
+Never use `self.notify()` anywhere in the app. All user-facing notifications go to
+`notify-send` via `system_notify()`. The in-app Textual Toast system is **disabled**.
+
+## OpsBar — animated block progress bar
+
+The redesigned OpsBar (height: 3, dock: bottom) shows animated Unicode block bars.
+New API beyond the basics:
+
+```python
+ops.set_running("Installing Docker…", step=1, total=4)   # block bar + spinner
+ops.add_completed("Docker")                               # adds ✓ Docker to ticker
+ops.set_running("Installing Lima…",  step=2, total=4)
+ops.set_complete("✓  Done — 2 tools installed")          # full green bar
+ops.set_error("✗  Failed — brew install: exit 1")        # red
+```
+
+The `stage=` keyword still works (backward compat alias for `step=`).
+The `add_completed(name)` method scrolls `✓ name` into the left ticker strip.
+
+## Feature Portal pattern — devmode screen
+
+The Developer screen is now a feature portal: each `AdwActionRow` presents a named
+capability with a subtitle pitch + inline Install button as the `trailing=` widget.
+
+```python
+AdwActionRow(
+    "Docker",
+    subtitle="The Bluefin DX ships Docker with compose, lazydocker, and dive.",
+    trailing=Button("Install", id="install-docker", variant="primary"),
+    id="tool-docker",
+)
+```
+
+Install state is detected on mount via background workers and buttons are updated:
+- Not installed → `"Install"` button enabled, `variant="primary"`
+- Installed → `"Installed ✓"` button disabled, `variant="success"`
+
+Install operations stream `ProgressUpdate` objects to OpsBar directly — **no modals**.
+
+## `display: flex` is invalid in Textual CSS
+
+Textual only accepts `display: block` or `display: none`. Using `flex` throws
+`StylesheetParseError` at runtime. To make a widget visible/hidden:
+
+```css
+.visible { display: block; }   /* ✓ correct */
+.visible { display: flex;  }   /* ✗ invalid */
+```
+
+## Smart Reboot strategy — systemd user units
+
+Reboot strategies write systemd **user** units to `~/.config/systemd/user/`.
+Always run `systemctl --user daemon-reload` after writing or removing unit files.
+Timer units need `systemctl --user enable --now <name>.timer` to activate.
+Safety gate: always check `systemd-inhibit --list --no-pager | grep -qE 'audio|video|idle'`
+before any auto-reboot — skip and log to `~/.local/share/bluefinctl/reboot-skipped.log`.
+
 
 ## @work — the correct pattern for async actions
 
@@ -224,17 +272,62 @@ proc2 = await asyncio.create_subprocess_exec("pkexec", "systemctl", "enable", ..
 ## Red Flags
 
 - `from textual.widgets import Switch` in any file — should be `_CheckToggle`
+- `self.notify()` anywhere — banned; use `system_notify()` from `core/notify.py`
 - `self.run_worker(self.action_something())` on a `@work`-decorated method
 - `async def action_*` that calls `push_screen_wait` without `@work`
 - `info.clean_image_ref` used as display string (missing tag)
 - `height: auto` on `Horizontal` containers (expands to fill, not shrink)
+- `ScrollableContainer` that never scrolls — missing `height: 1fr` on `#adw-content`
+- `AdwActionRow` subtitles wrapping to 4+ lines — add `height: 3` + `overflow-x: hidden`
 - Hardcoded color variables (`$background`, `$surface`) in TCSS
 - `asyncio.get_event_loop()` — use `get_running_loop()` inside async functions
-- Rich `Console()` inside Textual screen/widget — use `self.notify()` instead
+- Rich `Console()` inside Textual screen/widget — Console writes to stdout and garbles TUI
+- `Widget` subclass with BOTH `render()` AND `compose()` — children overlap render text
+- `KitsTab(Static)` with `layout: horizontal` CSS — use `KitsTab(Horizontal)` directly
 
-## Verification
+## RollbackCalendar — Label-based calendar grid
 
-After any change to screens, widgets, or core:
+The `RollbackCalendar` extends `Vertical` and uses **two Label children** — `#cal-grid` and `#cal-hint` — instead of mixing `render()` with `compose()`. Mixing them causes visual overlap where children float on top of the render text. The correct pattern:
+
+```python
+class RollbackCalendar(Vertical):
+    def compose(self) -> ComposeResult:
+        yield Label("", id="cal-grid")   # updated via _update_grid()
+        yield Label("", id="cal-hint")   # updated via _update_hint()
+
+    def _update_grid(self) -> None:
+        self.query_one("#cal-grid", Label).update(self._build_grid_text())
+```
+
+Never add `render()` to a widget that also has children from `compose()`.
+
+## ViewSwitcherTab centering
+
+To reliably center the tab label text in a `Static` subclass, return `Text(self._tab_name, justify="center")` from `render()`. The CSS `content-align: center middle` aligns the content block but Rich's `justify="center"` ensures the text string itself is horizontally centered within the widget width.
+
+```python
+from rich.text import Text
+
+class ViewSwitcherTab(Static):
+    def render(self) -> Text:
+        return Text(self._tab_name, justify="center")
+```
+
+## Container base classes for tabs
+
+When a tab widget has a two-pane horizontal layout, extend `Horizontal` directly rather than `Static` with `layout: horizontal` CSS. `Static` is for text display; `Horizontal`/`Vertical` are the correct layout containers.
+
+```python
+# Good
+class KitsTab(Horizontal): ...
+class ToolsTab(Vertical): ...
+
+# Bad — Static with layout override is fragile
+class KitsTab(Static):
+    DEFAULT_CSS = "KitsTab { layout: horizontal; }"
+```
+
+
 
 - [ ] `pytest` passing (43 tests)
 - [ ] `ruff check src/ tests/` clean

@@ -93,7 +93,54 @@ def compose(self) -> ComposeResult:
     yield OpsBar()   # always LAST
 ```
 
-`#adw-content` is styled in `bluefin.tcss`. OpsBar uses `dock: bottom` and must be the last child.
+**`#adw-content` MUST have `height: 1fr` in the screen's `DEFAULT_CSS` or it will expand
+to fit content and never scroll.** Add `scrollbar-gutter: stable` to prevent layout shift.
+
+```css
+#adw-content {
+    height: 1fr;
+    scrollbar-gutter: stable;
+}
+```
+
+For two-column layouts inside `#adw-content`:
+
+```python
+with ScrollableContainer(id="adw-content"):
+    with Horizontal(classes="adw-cols"):
+        with Vertical(classes="adw-col"):   # left
+            yield AdwPreferencesGroup(...)
+        with Vertical(classes="adw-col"):   # right
+            yield AdwPreferencesGroup(...)
+```
+
+```css
+.adw-cols { height: auto; }
+.adw-col  { width: 1fr; padding: 0 2; }
+```
+
+OpsBar uses `dock: bottom` and must be the last child.
+
+### AdwActionRow with trailing install button
+
+For feature-portal rows with an inline install button:
+
+```python
+AdwActionRow(
+    "Podman Desktop",
+    subtitle="Docker-compatible, zero daemon overhead.",
+    trailing=Button("Install", id="install-podman", variant="primary"),
+    id="tool-podman",
+)
+```
+
+`AdwActionRow` uses `height: auto; min-height: 2`. If subtitles are long, they wrap and
+make rows very tall. Cap them per-screen:
+
+```css
+MyScreen AdwActionRow { height: 3; }
+MyScreen AdwActionRow > .adw-row-content > .adw-row-subtitle { overflow-x: hidden; }
+```
 
 ### HIG rules to follow
 
@@ -266,9 +313,12 @@ loop = asyncio.get_event_loop()
 | `push_screen_wait` without `@work` | Add `@work(exclusive=True)` to the calling method |
 | `info.clean_image_ref` shown to users (no tag) | Use `info.full_clean_ref` for display |
 | `height: auto` on Horizontal fills terminal | Use `height: N` or `height: 1fr` |
-| `Console()` in Textual screen/widget | Use `self.notify()` — Console writes to stdout and garbles TUI |
+| `ScrollableContainer` never scrolls | Missing `height: 1fr` on `#adw-content` in `DEFAULT_CSS` |
+| Long `AdwActionRow` subtitles wrap — rows 4+ lines tall | Add `height: 3` + `overflow-x: hidden` on subtitle per-screen |
+| `self.notify()` anywhere in the app | Banned — use `system_notify()` from `core/notify.py` |
+| `Console()` in Textual screen/widget | Console writes to stdout and garbles TUI |
 | pkexec hangs | The polkit dialog is a separate GTK window — don't add timeouts |
 | `bootc switch --target ref` | Wrong — positional: `["pkexec", "bootc", "switch", ref]` |
 | `asyncio.get_event_loop()` in async function | Use `asyncio.get_running_loop()` |
-| Rich `[code]text[/code]` for monospace | Not a valid Rich tag. Use `[bold]` or color for code-like distinction |
+| Rich `[code]text[/code]` for monospace | Not a valid Rich tag. Use `[bold]` or color |
 | OpsBar not last in compose | `dock: bottom` only works when OpsBar is the last child |

@@ -62,10 +62,10 @@ All skill files must meet the [`/addyosmani/agent-skills`](https://context7.com/
 |-----|--------|------|
 | 1 | System | `screens/system.py` |
 | 2 | Updates | `screens/updates.py` |
-| 3 | Developer Mode (Kits + Tools + Environments) | `screens/devmode.py` |
-| 4 | AI | `screens/ai.py` |
+| 3 | Developer | `screens/devmode.py` |
+| — | AI | `screens/ai.py` (hidden for 1.0, not routed) |
 
-`screens/toolkit.py` still exists on disk but is not routed — it is a dead file.
+`screens/toolkit.py` still exists on disk but is not routed — dead file.
 
 ## Self-Improvement Loop
 
@@ -149,12 +149,11 @@ Co-authored-by: Claude <claude@anthropic.com>
 ```bash
 pip install -e ".[dev]"
 
-pytest                        # full suite (43 tests)
-pytest tests/test_brew.py     # single file
+just run                      # always use this to run — reinstalls editable then launches bctl
+just dev                      # hot-reload CSS (textual run --dev)
+pytest                        # full suite (86 tests)
 ruff check src/ tests/        # lint
 mypy src/                     # type-check (strict)
-bctl                          # launch TUI
-textual run --dev src/bluefinctl/app.py  # hot-reload CSS
 ```
 
 `ruff` line length: 100, target Python 3.12. `mypy` strict. `pytest` asyncio_mode `auto`.
