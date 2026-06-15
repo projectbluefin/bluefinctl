@@ -25,6 +25,28 @@ brew tap projectbluefin/bluefinctl
 brew install bluefinctl
 ```
 
+#### Trust (if you have `HOMEBREW_REQUIRE_TAP_TRUST` set)
+
+Homebrew 4.x introduced opt-in tap trust enforcement. If you have
+`HOMEBREW_REQUIRE_TAP_TRUST=1` in your environment, Homebrew will refuse to load
+formulae from untrusted third-party taps until you explicitly trust them:
+
+```bash
+brew trust --tap projectbluefin/bluefinctl
+brew install bluefinctl
+```
+
+**What the formula installs:**
+The formula uses Homebrew's `Language::Python::Virtualenv` helper — it builds an
+isolated Python 3.13 virtualenv under `$(brew --prefix)/opt/bluefinctl`, installs
+`bluefinctl` and its dependencies (`textual`, `typer`, `rich`) into that virtualenv,
+and symlinks `bctl` and `bluefinctl` into `$(brew --prefix)/bin`. No pre/post-install
+hooks, no elevated-privilege scripts.
+
+You can read the formula at
+[`Formula/bluefinctl.rb`](https://github.com/projectbluefin/bluefinctl/blob/main/Formula/bluefinctl.rb)
+before tapping.
+
 ### From source
 
 ```bash
@@ -33,7 +55,7 @@ cd bluefinctl
 pip install -e .
 ```
 
-> **Requirements:** Python ≥ 3.12, Linux, a bootc-managed system (Bluefin, Aurora, uCore…).
+> **Requirements:** Python ≥ 3.13, Linux, a bootc-managed system (Bluefin, Aurora, uCore…).
 > The TUI runs anywhere; most core actions need a running Bluefin system.
 
 ---
@@ -46,7 +68,7 @@ bctl --screen updates         # Jump to a screen on launch
 
 # Headless subcommands — scriptable, no TUI required
 bctl status                   # Print system info
-bctl update                   # Full system update: OS · Flatpak · Brew · Distrobox
+bctl update                   # Full system update: OS · Flatpak · Brew · Containers
 bctl update --check           # Check for available updates, exit 0/1
 bctl devmode on|off|status    # Toggle developer mode
 bctl kit list|install <name>  # Manage Brewfile-based tool collections
@@ -72,21 +94,17 @@ Navigate with the tab bar at the top (libadwaita AdwViewSwitcher style) or numbe
 Replaces `ujust update` with a beautiful terminal ceremony:
 
 ```
-╭──────────────────────────────────────────────────────────────╮
-│  bluefin  ·  ghcr.io/projectbluefin/bluefin:latest  ·  stable │
-╰──────────────────────────────────────────────────────────────╯
-  ✓  System Image    ████████████████████████  23/23 layers  0:05:43
-  ✓  Flatpak         ████████████████████████  8 apps        0:00:23
-  ✓  Homebrew        ████████████████████████  5 formulae    0:01:12
-  ✓  Distrobox       ████████████████████████  done          0:00:08
-
-  ✓  Update staged.  Reboot when ready.
+  ✓ System Image  ━━━━━━━━━━━━━━━━━━━━  19/19  ↓ 3.2 GB  ·  staged — reboot when ready  0:05:43
+  ✓ Flatpak       ━━━━━━━━━━━━━━━━━━━━   4/4   4 apps updated                            0:00:23
+  ✓ Homebrew      ━━━━━━━━━━━━━━━━━━━━   1/1   2 formulae upgraded                       0:01:12
+  ✓ Containers    ━━━━━━━━━━━━━━━━━━━━   1/1   already up to date                        0:00:03
 ```
 
-- **bootc `--progress-fd`** — machine-readable JSON layer progress: layers downloaded, MiB transferred, MiB/s
-- **Parallel second phase** — Flatpak + Brew + Distrobox run concurrently after the OS image
+- **bootc `--progress-fd`** — machine-readable JSON layer progress: layer count and bytes transferred across all pulled layers
+- **Parallel second phase** — Flatpak + Brew + Containers run concurrently after the OS image; each row resolves independently
+- **Rich Progress bars** — each task row updates in-place via cursor-up; no scroll, no mess, correct width on any terminal
 - **OSC 9;4** — progress bar in your terminal tab (Ghostty, Ptyxis, iTerm2, WezTerm)
-- **OSC title** — tab title tracks the current stage
+- **OSC title** — tab title tracks the current stage (`Pulling 14/19 · Importing · Done ✓`)
 
 ---
 
@@ -113,6 +131,7 @@ src/bluefinctl/
 ├── core/                Business logic — NO Textual imports, fully testable
 │   ├── updates.py       bootc status, strategy, focus mode, reboot
 │   ├── update_runner.py bctl update orchestration (bootc + parallel stages)
+│   ├── update_app.py    Rich Progress CLI renderer for bctl update
 │   ├── devmode.py       developer tooling, Lima, group management
 │   ├── brew.py          Brewfile management
 │   ├── flatpak.py       Flatpak search/install

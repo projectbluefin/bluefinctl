@@ -8,7 +8,7 @@ class Bluefinctl < Formula
   version "0.1.0"
   license "MIT"
 
-  depends_on "python@3.12"
+  depends_on "python@3.13"
 
   resource "textual" do
     url "https://files.pythonhosted.org/packages/textual-1.0.0.tar.gz"
