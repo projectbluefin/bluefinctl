@@ -64,7 +64,8 @@ Navigate with the tab bar at the top (libadwaita AdwViewSwitcher style) or numbe
 |---|--------|-------------|
 | 1 | **System** | Image identity, GPU, health, rollback calendar, quick actions |
 | 2 | **Updates** | Strategy, focus mode, channel switch, rollback, staged-update banner |
-| 3 | **Developer** | Cloud-native tools, editors, containers, virtualization |
+| 3 | **DX Mode** | Cloud-native tools, editors, containers, virtualization |
+| 4 | **GDX Mode** | Nvidia/AMD/Intel stacks based on GPUs | 
 
 ---
 
