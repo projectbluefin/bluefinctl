@@ -12,6 +12,8 @@ metadata:
   context7-sources:
     - /textualize/textual
     - /tiangolo/typer
+    - /gnome/libadwaita
+    - /websites/developer_gnome
 ---
 
 # bluefinctl Development
@@ -306,8 +308,30 @@ All four command-palette actions (`action_update_now`, `action_system_report`, `
 
 Do NOT run `pkexec ujust dx-group` (or any pkexec call) in `on_mount` of DevModeScreen. It fires a polkit auth dialog every time the user switches to tab 3. Groups are provisioned by individual tool install steps, not globally at mount time.
 
+## GNOME HIG Quick Reference
+
+See `docs/skills/textual-dev.md` for the full HIG section. Summary for this codebase:
+
+| Context | Capitalization | Example |
+|---------|---------------|---------|
+| Group headings (`AdwPreferencesGroup` title) | Header caps | `"Update Components"`, `"Reboot Strategy"` |
+| Button labels | Header caps + imperative verb | `"Update Now"`, `"Check for Updates"`, `"Roll Back"` |
+| Switch/toggle row titles (`AdwSwitchRow`) | Header caps | `"Reboot on Logout"`, `"OS Image"` |
+| Row subtitles | Sentence case | `"bootc system image"`, `"Downloads automatically"` |
+| Body/explanatory text in dialogs | Sentence case | `"Are you sure you want to roll back?"` |
+
+Button variant mapping to HIG:
+- `variant="primary"` → **suggested action** (affirmative, accent colour)
+- `variant="error"` → **destructive action** (permanent/dangerous, red)
+- `variant="default"` → neutral
+
 ## Red Flags
 
+- `AdwSwitchRow("opt into testing stream")` — switch labels must use header caps: `"Opt Into Testing Stream"`
+- Row subtitle in Title Case — subtitles use sentence case: `"bootc system image"` not `"Bootc System Image"`
+- Button label that is a noun, not a verb — HIG requires imperative: `"Update"` not `"Updates"`
+- `variant="warning"` on a Button — not a standard HIG style; use `"primary"` (suggested) or `"error"` (destructive)
+- `variant="success"` for primary call-to-action — use `"primary"` (suggested); `"success"` is for confirmation states only
 - `from textual.widgets import Switch` in any file — should be `_CheckToggle`
 - `self.notify()` anywhere — banned; use `system_notify()` from `core/notify.py`
 - `self.run_worker(self.action_something())` on a `@work`-decorated method

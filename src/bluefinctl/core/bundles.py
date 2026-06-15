@@ -352,7 +352,7 @@ async def preview_bundle_deactivation(slug: str) -> DeactivationPreview:
 async def _run_command_updates(
     command: list[str],
     parser: BrewInstallParser,
-) -> AsyncGenerator[ProgressUpdate, None]:
+) -> AsyncGenerator[ProgressUpdate]:
     proc = await asyncio.create_subprocess_exec(
         command[0],
         *command[1:],
@@ -369,7 +369,7 @@ async def _run_command_updates(
         raise RuntimeError(f"Command failed ({rc}): {' '.join(command)}")
 
 
-async def activate_bundle_steps(slug: str) -> AsyncGenerator[ProgressUpdate, None]:
+async def activate_bundle_steps(slug: str) -> AsyncGenerator[ProgressUpdate]:
     """Install a bundle and stream progress updates for OperationModal."""
     brewfile = SYSTEM_BREWFILES / f"{slug}.Brewfile"
     if not brewfile.exists():
@@ -388,7 +388,7 @@ async def activate_bundle_steps(slug: str) -> AsyncGenerator[ProgressUpdate, Non
 async def deactivate_bundle_steps(
     slug: str,
     preview: DeactivationPreview | None = None,
-) -> AsyncGenerator[ProgressUpdate, None]:
+) -> AsyncGenerator[ProgressUpdate]:
     """Safely deactivate a bundle and stream progress updates for OperationModal."""
     if preview is None:
         preview = await preview_bundle_deactivation(slug)

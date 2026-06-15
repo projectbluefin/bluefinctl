@@ -47,7 +47,7 @@ class ChangelogViewer(Static):
         local_changelog = Path("/usr/share/ublue-os/changelog.md")
         if local_changelog.exists():
             try:
-                text = await asyncio.get_event_loop().run_in_executor(
+                text = await asyncio.get_running_loop().run_in_executor(
                     None, local_changelog.read_text,
                 )
                 # Show last 50 lines (most recent release)

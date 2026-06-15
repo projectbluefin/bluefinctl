@@ -4,6 +4,8 @@ Reads the current GNOME accent color and color-scheme from gsettings and
 constructs Textual Theme objects that match the GNOME libadwaita palette.
 """
 
+from __future__ import annotations
+
 import subprocess
 from functools import lru_cache
 from typing import TYPE_CHECKING, Literal
@@ -106,7 +108,7 @@ def get_color_scheme() -> Literal["dark", "light"]:
 def build_theme(
     scheme: Literal["dark", "light"],
     accent_name: str = DEFAULT_ACCENT,
-) -> "Theme":
+) -> Theme:
     """Build a Textual Theme matching the GNOME libadwaita palette.
 
     Args:

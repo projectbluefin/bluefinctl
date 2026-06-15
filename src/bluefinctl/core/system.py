@@ -175,7 +175,7 @@ def _check_devmode() -> bool:
 
 async def get_system_info() -> SystemInfo:
     """Gather all system information asynchronously."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     image_data = await loop.run_in_executor(None, _read_image_info)
     gpu = await loop.run_in_executor(None, _detect_gpu)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from textual import work
+from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
@@ -70,7 +70,7 @@ class SystemScreen(Screen[None]):
                     yield AdwPreferencesGroup(
                         "Release Stream",
                         AdwSwitchRow(
-                            "Opt into [bold]testing[/bold] stream",
+                            "Opt Into [bold]Testing[/bold] Stream",
                             subtitle="Switches to the testing image tag — reboot to apply",
                             id="channel-testing-switch",
                         ),
@@ -210,22 +210,25 @@ class SystemScreen(Screen[None]):
     # Event handlers
     # ─────────────────────────────────────────────────────────────────────────
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn_id = event.button.id
-        if btn_id == "btn-update-all":
-            self._do_update_all()
-        elif btn_id == "btn-op-confirm":
-            op = self.query_one(OpsBar).pending_op or ""
-            if op == "rollback":
-                self._exec_rollback(None)
-            elif op.startswith("rollback:"):
-                self._exec_rollback(op.split(":", 1)[1])
-        elif btn_id == "btn-op-cancel":
-            self.query_one(OpsBar).set_idle("Ready")
+    @on(Button.Pressed, "#btn-update-all")
+    def _on_update_all(self) -> None:
+        self._do_update_all()
 
-    def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
-        btn_id = event.row.id
-        if btn_id == "btn-rollback":
+    @on(Button.Pressed, "#btn-op-confirm")
+    def _on_op_confirm(self) -> None:
+        op = self.query_one(OpsBar).pending_op or ""
+        if op == "rollback":
+            self._exec_rollback(None)
+        elif op.startswith("rollback:"):
+            self._exec_rollback(op.split(":", 1)[1])
+
+    @on(Button.Pressed, "#btn-op-cancel")
+    def _on_op_cancel(self) -> None:
+        self.query_one(OpsBar).set_idle("Ready")
+
+    @on(AdwButtonRow.Pressed)
+    def _on_rollback_row(self, event: AdwButtonRow.Pressed) -> None:
+        if event.row.id == "btn-rollback":
             self._do_rollback()
 
     def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
-@dataclass
+@dataclass(slots=True)
 class ProgressUpdate:
     """A structured progress update extracted from subprocess output."""
 

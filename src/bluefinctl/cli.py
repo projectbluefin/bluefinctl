@@ -35,263 +35,49 @@ def status() -> None:
     print_status()
 
 
+
+
 @app.command()
 def update(
     check: bool = typer.Option(False, "--check", help="Check only, don't apply"),
 ) -> None:
     """Update the entire system: OS image, Flatpaks, Brew, and containers."""
-    import asyncio
-    import time
-
     from rich.console import Console
-    from rich.panel import Panel
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TextColumn,
-        TimeElapsedColumn,
-    )
-    from rich.text import Text
 
     from bluefinctl.core.update_runner import (
-        ImageInfo,
         check_for_update,
+        get_autoupdate_containers,
         get_image_info,
-        run_bootc_upgrade,
-        run_brew_update,
-        run_distrobox_update,
-        run_flatpak_update,
     )
-    from bluefinctl.util.osc import (
-        osc_notify,
-        osc_progress,
-        osc_progress_clear,
-        osc_progress_error,
-        osc_progress_indeterminate,
-        set_terminal_title,
-    )
+    from bluefinctl.theme.accent import ACCENT_COLORS, get_accent_color, get_color_scheme
 
-    console = Console()
-    image_info: ImageInfo = get_image_info()
+    _scheme     = get_color_scheme()
+    _shade_idx  = 0 if _scheme == "dark" else 1
+    _accent_hex = ACCENT_COLORS[get_accent_color()][_shade_idx]
 
-    # ── --check mode ──────────────────────────────────────────────────────────
+    console    = Console()
+    image_info = get_image_info()
+
+    # ── --check mode ───────────────────────────────────────────────────────────
     if check:
         console.print("[dim]Checking for updates…[/dim]")
-        has_update = check_for_update()
-        if has_update:
+        if check_for_update():
             ref = image_info.ref or "unknown"
-            console.print(f"[yellow]●[/yellow]  Update available  ·  {ref}")
+            console.print(f"[{_accent_hex}]●[/{_accent_hex}]  Update available  ·  {ref}")
         else:
-            console.print("[green]✓[/green]  System is up to date")
+            console.print(f"[{_accent_hex}]✓[/{_accent_hex}]  System is up to date")
         return
 
-    # ── Build a Progress subclass that adds a header panel ────────────────────
-    class UpdateProgress(Progress):
-        """Rich Progress with a Bluefin image header rendered above the tasks."""
+    # Prime sudo credentials before the progress display starts
+    import asyncio
+    import subprocess as _sp
+    _sp.run(["sudo", "-v"], check=False)
 
-        def __init__(self, info: ImageInfo, *args: object, **kwargs: object) -> None:
-            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
-            self._info = info
+    # ── Full update ────────────────────────────────────────────────────────
+    from bluefinctl.core.update_app import run_update_cli
 
-        def get_renderables(self) -> object:  # type: ignore[override]
-            ref = self._info.ref or "ghcr.io/projectbluefin/bluefin:latest"
-            ver = f"  ·  {self._info.version}" if self._info.version else ""
-            header = Text.assemble(
-                ("  ", ""),
-                ("bluefin", "bold #62a0ea"),
-                ("  ", "dim"),
-                (ref, "dim white"),
-                (ver, "dim cyan"),
-                ("  ", ""),
-            )
-            yield Panel(
-                header,
-                border_style="dim white",
-                padding=(0, 0),
-            )
-            yield self.make_tasks_table(self.tasks)
-
-    progress = UpdateProgress(
-        image_info,
-        SpinnerColumn(finished_text="[bold green]✓[/bold green]"),
-        TextColumn("{task.description}", markup=True),
-        BarColumn(bar_width=30, complete_style="green", finished_style="green"),
-        TextColumn("{task.fields[detail]}", style="dim white"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=False,
-    )
-
-    # Stage → human label and OSC weight
-    stage_label = {
-        "pulling": "Downloading",
-        "importing": "Importing",
-        "staging": "Deploying",
-    }
-    # bootc phases: pulling 0-80%, importing 80-90%, staging 90-100%
-    stage_osc_start = {"pulling": 0, "importing": 72, "staging": 81}
-    stage_osc_len   = {"pulling": 72, "importing": 9,  "staging": 9}
-
-    async def _run() -> None:
-        with progress:
-            # ── Add all tasks ─────────────────────────────────────────────────
-            bootc_t = progress.add_task(
-                "[bold]System Image[/bold]",
-                total=None,
-                detail="preparing…",
-            )
-            bytes_t = progress.add_task(
-                "  [dim]└─ transfer[/dim]",
-                total=None,
-                detail="",
-                visible=False,
-            )
-            flatpak_t = progress.add_task(
-                "[dim]Flatpak[/dim]",
-                total=None,
-                detail="queued",
-                start=False,
-            )
-            brew_t = progress.add_task(
-                "[dim]Homebrew[/dim]",
-                total=None,
-                detail="queued",
-                start=False,
-            )
-            distrobox_t = progress.add_task(
-                "[dim]Distrobox[/dim]",
-                total=None,
-                detail="queued",
-                start=False,
-            )
-
-            # ── Phase 1: bootc upgrade ────────────────────────────────────────
-            set_terminal_title("bctl update · System Image…")
-            osc_progress_indeterminate()
-
-            _last_bytes_time: float = time.monotonic()
-            _last_bytes_val: int = 0
-            _speed_mibs: float = 0.0
-            _bootc_succeeded = True
-
-            try:
-                async for event in run_bootc_upgrade():
-                    stage = stage_label.get(event.task, event.task.title() or "Working")
-
-                    if event.type == "ProgressSteps" and event.steps_total > 0:
-                        pct_in_stage = event.steps / event.steps_total
-                        osc_start = stage_osc_start.get(event.task, 0)
-                        osc_len   = stage_osc_len.get(event.task, 9)
-                        osc_val   = int(osc_start + pct_in_stage * osc_len)
-                        osc_progress(osc_val)
-                        set_terminal_title(
-                            f"bctl update · {stage} {event.steps}/{event.steps_total} layers"
-                        )
-                        progress.update(
-                            bootc_t,
-                            total=event.steps_total,
-                            completed=event.steps,
-                            detail=(
-                                f"{stage}  "
-                                f"{event.steps}/{event.steps_total} layers"
-                            ),
-                        )
-
-                    elif event.type == "ProgressBytes" and event.bytes_total > 0:
-                        now = time.monotonic()
-                        dt = now - _last_bytes_time
-                        if dt >= 0.4:
-                            delta = event.bytes_ - _last_bytes_val
-                            _speed_mibs = (delta / dt) / (1024 * 1024)
-                            _last_bytes_time = now
-                            _last_bytes_val = event.bytes_
-
-                        mib_done  = event.bytes_ / (1024 * 1024)
-                        mib_total = event.bytes_total / (1024 * 1024)
-                        speed_str = (
-                            f"  ·  {_speed_mibs:.1f} MiB/s"
-                            if _speed_mibs > 0.05 else ""
-                        )
-                        progress.update(
-                            bytes_t,
-                            total=event.bytes_total,
-                            completed=event.bytes_,
-                            visible=True,
-                            detail=f"{mib_done:.1f} / {mib_total:.1f} MiB{speed_str}",
-                        )
-            except Exception:
-                _bootc_succeeded = False
-
-            # Mark bootc done
-            bootc_total = progress.tasks[bootc_t].total or 1
-            if _bootc_succeeded:
-                progress.update(
-                    bootc_t,
-                    total=bootc_total,
-                    completed=bootc_total,
-                    detail="[green]staged — reboot to apply[/green]",
-                )
-            else:
-                progress.update(
-                    bootc_t,
-                    detail="[red]✗ failed[/red]",
-                )
-                osc_progress_error()
-
-            progress.update(bytes_t, visible=False)
-            osc_progress(90)
-
-            # ── Phase 2: parallel stages ──────────────────────────────────────
-            set_terminal_title("bctl update · Flatpak · Brew · Distrobox…")
-
-            for t in [flatpak_t, brew_t, distrobox_t]:
-                progress.start_task(t)
-                progress.update(t, detail="running…")
-
-            results = await asyncio.gather(
-                run_flatpak_update(),
-                run_brew_update(),
-                run_distrobox_update(),
-                return_exceptions=True,
-            )
-
-            for task_id, _name, result in [
-                (flatpak_t, "Flatpak",   results[0]),
-                (brew_t,    "Homebrew",  results[1]),
-                (distrobox_t, "Distrobox", results[2]),
-            ]:
-                if isinstance(result, Exception):
-                    progress.update(
-                        task_id, total=1, completed=1,
-                        detail=f"[red]error: {result}[/red]",
-                    )
-                else:
-                    ok, summary = result  # type: ignore[misc]
-                    colour = "green" if ok else "red"
-                    progress.update(
-                        task_id, total=1, completed=1,
-                        detail=f"[{colour}]{summary}[/{colour}]",
-                    )
-
-            # ── Done ──────────────────────────────────────────────────────────
-            osc_progress(100)
-            set_terminal_title("bctl update · Done ✓")
-            osc_notify("bctl update", "System update complete — reboot when ready")
-
-        # Print outside the Live context so it stays
-        console.print()
-        console.print(
-            "  [bold green]✓[/bold green]  "
-            "Update staged.  Reboot when ready.",
-            markup=True,
-        )
-        console.print()
-        osc_progress_clear()
-        set_terminal_title("")
-
-    asyncio.run(_run())
-
+    _has_containers = bool(get_autoupdate_containers())
+    asyncio.run(run_update_cli(accent_hex=_accent_hex, has_containers=_has_containers))
 
 @app.command()
 def devmode(

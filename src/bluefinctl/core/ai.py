@@ -311,7 +311,7 @@ def get_ai_tools_status() -> list[AITool]:
     return tools
 
 
-async def install_ai_tools_kit_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_ai_tools_kit_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install/update the AI Tools bundle."""
     from bluefinctl.core.bundles import activate_bundle_steps
 
@@ -464,7 +464,7 @@ def _copy_quadlets(stack: AIStack) -> int:
     return copied
 
 
-async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate, None]:
+async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
     """Deploy an AI stack via quadlet files with OperationModal progress."""
     total_steps = 5
     yield ProgressUpdate(
@@ -519,7 +519,7 @@ async def deploy_stack(stack: AIStack) -> bool:
     return True
 
 
-async def stop_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate, None]:
+async def stop_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
     """Stop a running AI stack with OperationModal progress."""
     service_name = _stack_service_name(stack)
     yield ProgressUpdate(percent=0, step=1, total_steps=2, message=f"Stopping {service_name}")

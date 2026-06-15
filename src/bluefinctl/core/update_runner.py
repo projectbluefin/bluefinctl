@@ -32,7 +32,7 @@ from dataclasses import dataclass
 
 # ── Data types ────────────────────────────────────────────────────────────────
 
-@dataclass
+@dataclass(slots=True)
 class BootcEvent:
     """Structured progress event from bootc --progress-fd."""
 
@@ -45,7 +45,7 @@ class BootcEvent:
     bytes_total: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class ImageInfo:
     """Booted bootc image metadata."""
 
@@ -226,3 +226,53 @@ async def run_distrobox_update() -> tuple[bool, str]:
         return proc.returncode == 0, "done" if proc.returncode == 0 else "failed"
     except FileNotFoundError:
         return True, "not installed"
+
+
+def get_autoupdate_containers() -> list[str]:
+    """Return names of containers with ``io.containers.autoupdate`` label set.
+
+    These are eligible for ``podman auto-update``.  Distrobox containers appear
+    here if the user has configured autoupdate labels on them.
+    """
+    try:
+        result = subprocess.run(
+            ["podman", "ps",
+             "--filter", "label=io.containers.autoupdate",
+             "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+        return [n.strip() for n in result.stdout.strip().splitlines() if n.strip()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+async def run_container_autoupdate() -> tuple[bool, str]:
+    """Run ``podman auto-update`` for labeled containers.
+
+    Returns ``(success, human_summary)``.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "podman", "auto-update",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await proc.communicate()
+        output = stdout.decode("utf-8", errors="replace")
+        data_lines = [
+            ln for ln in output.splitlines()
+            if ln.strip() and not ln.startswith("UNIT")
+        ]
+        updated = sum(1 for ln in data_lines if ln.strip().endswith("true"))
+        if updated:
+            noun = "containers" if updated != 1 else "container"
+            return proc.returncode == 0, f"{updated} {noun} updated"
+        return proc.returncode == 0, "already up to date" if proc.returncode == 0 else "failed"
+    except FileNotFoundError:
+        return True, "podman not available"
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)

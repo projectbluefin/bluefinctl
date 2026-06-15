@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
+from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import ModalScreen
@@ -108,12 +109,14 @@ class InputModal(ModalScreen[str | None]):
                 yield Button("Cancel", id="btn-cancel", variant="default")
                 yield Button("OK", id="btn-ok", variant="primary")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-ok":
-            value = self.query_one("#input-field", Input).value
-            self.dismiss(value)
-        else:
-            self.dismiss(None)
+    @on(Button.Pressed, "#btn-ok")
+    def _on_ok(self) -> None:
+        value = self.query_one("#input-field", Input).value
+        self.dismiss(value)
+
+    @on(Button.Pressed, "#btn-cancel")
+    def _on_cancel(self) -> None:
+        self.dismiss(None)
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         value = self.query_one("#input-field", Input).value

@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(slots=True)
 class FlatpakResult:
     """A Flatpak app found via search."""
 

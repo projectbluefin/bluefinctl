@@ -109,7 +109,7 @@ def _read_disabled_list() -> set[str]:
 
 async def get_brew_state() -> BrewState:
     """Build the complete layered Brewfile state."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # Parse system Brewfiles
     system_packages: list[Package] = []

@@ -161,7 +161,7 @@ def _find_dev_tool(tool_or_slug: DevTool | str) -> DevTool:
 async def _brew_install_steps(
     packages: list[str],
     title: str,
-) -> AsyncGenerator[ProgressUpdate, None]:
+) -> AsyncGenerator[ProgressUpdate]:
     if not packages:
         yield ProgressUpdate(percent=100, message="Nothing to install")
         return
@@ -186,7 +186,7 @@ async def _brew_install_steps(
 
 async def install_dev_tool_steps(
     tool_or_slug: DevTool | str,
-) -> AsyncGenerator[ProgressUpdate, None]:
+) -> AsyncGenerator[ProgressUpdate]:
     """Install one developer tool and stream progress for OperationModal."""
     tool = _find_dev_tool(tool_or_slug)
     if tool.installed:
@@ -196,14 +196,14 @@ async def install_dev_tool_steps(
         yield update
 
 
-async def install_missing_dev_tools_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_missing_dev_tools_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install every missing canonical developer tool."""
     missing = [tool.package for tool in get_dev_tools_status() if not tool.installed]
     async for update in _brew_install_steps(missing, "Installing missing developer tools"):
         yield update
 
 
-async def lima_setup_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def lima_setup_steps() -> AsyncGenerator[ProgressUpdate]:
     """Set up Lima VM — KVM preflight, install lima, start default VM, verify."""
     total = 4
 
@@ -450,7 +450,7 @@ def is_incus_installed() -> bool:
 async def _flatpak_install_steps(
     app_id: str,
     display_name: str = "",
-) -> AsyncGenerator[ProgressUpdate, None]:
+) -> AsyncGenerator[ProgressUpdate]:
     name = display_name or app_id
     yield ProgressUpdate(percent=0, step=1, total_steps=1, message=f"Installing {name}…")
     proc = await asyncio.create_subprocess_exec(
@@ -473,7 +473,7 @@ async def _brew_cask_steps(
     cask: str,
     display_name: str = "",
     tap: str | None = None,
-) -> AsyncGenerator[ProgressUpdate, None]:
+) -> AsyncGenerator[ProgressUpdate]:
     name = display_name or cask
     total = 2 if tap else 1
     step = 0
@@ -512,7 +512,7 @@ async def _brew_cask_steps(
 
 # ── Per-tool install step generators ─────────────────────────────────────────
 
-async def install_docker_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_docker_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install Docker + compose + lazydocker + dive via Homebrew."""
     total = 2
     yield ProgressUpdate(
@@ -551,13 +551,13 @@ async def install_docker_steps() -> AsyncGenerator[ProgressUpdate, None]:
     yield ProgressUpdate(percent=100, message="✓ Docker ready — log out to activate docker group")
 
 
-async def install_podman_desktop_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_podman_desktop_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install Podman Desktop via Flatpak."""
     async for u in _flatpak_install_steps("io.podman_desktop.PodmanDesktop", "Podman Desktop"):
         yield u
 
 
-async def install_lima_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_lima_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install Lima + start ubuntu-lts VM + wire VS Code SSH."""
     total = 4
 
@@ -644,45 +644,45 @@ async def install_lima_steps() -> AsyncGenerator[ProgressUpdate, None]:
     )
 
 
-async def install_vscode_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_vscode_steps() -> AsyncGenerator[ProgressUpdate]:
     async for u in _brew_cask_steps(
         "visual-studio-code-linux", "VS Code", tap="ublue-os/tap",
     ):
         yield u
 
 
-async def install_vscodium_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_vscodium_steps() -> AsyncGenerator[ProgressUpdate]:
     async for u in _brew_cask_steps(
         "vscodium-linux", "VSCodium", tap="ublue-os/tap",
     ):
         yield u
 
 
-async def install_zed_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_zed_steps() -> AsyncGenerator[ProgressUpdate]:
     async for u in _brew_cask_steps(
         "zed-linux", "Zed", tap="ublue-os/experimental-tap",
     ):
         yield u
 
 
-async def install_jetbrains_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_jetbrains_steps() -> AsyncGenerator[ProgressUpdate]:
     async for u in _brew_cask_steps(
         "jetbrains-toolbox-linux", "JetBrains Toolbox", tap="ublue-os/tap",
     ):
         yield u
 
 
-async def install_neovim_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_neovim_steps() -> AsyncGenerator[ProgressUpdate]:
     async for u in _brew_install_steps(["neovim"], "Installing Neovim…"):
         yield u
 
 
-async def install_helix_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_helix_steps() -> AsyncGenerator[ProgressUpdate]:
     async for u in _brew_install_steps(["helix"], "Installing Helix…"):
         yield u
 
 
-async def install_vms_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_vms_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install virt-manager + QEMU extension via Flatpak."""
     total = 2
     yield ProgressUpdate(
@@ -712,7 +712,7 @@ async def install_vms_steps() -> AsyncGenerator[ProgressUpdate, None]:
 
 
 
-async def install_incus_steps() -> AsyncGenerator[ProgressUpdate, None]:
+async def install_incus_steps() -> AsyncGenerator[ProgressUpdate]:
     """Install Incus via Homebrew and add user to incus-admin group."""
     total = 2
     yield ProgressUpdate(percent=0, step=1, total_steps=total, message="Installing Incus…")
@@ -736,9 +736,9 @@ async def install_incus_steps() -> AsyncGenerator[ProgressUpdate, None]:
         message="✓ Incus ready — log out to activate incus-admin group",
     )
 
-async def get_install_steps(tool_id: str) -> AsyncGenerator[ProgressUpdate, None]:
+async def get_install_steps(tool_id: str) -> AsyncGenerator[ProgressUpdate]:
     """Return the install step generator for a feature portal tool ID."""
-    _dispatch: dict[str, AsyncGenerator[ProgressUpdate, None]] = {
+    _dispatch: dict[str, AsyncGenerator[ProgressUpdate]] = {
         "docker":    install_docker_steps(),
         "podman":    install_podman_desktop_steps(),
         "lima":      install_lima_steps(),

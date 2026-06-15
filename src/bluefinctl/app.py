@@ -1,11 +1,14 @@
 """Main Textual application for bluefinctl.
 
 Three-screen navigation (keys 1-3) + AI screen (key 4, shown only with GPU):
+
   System   — identity, hardware, health, quick actions
   Updates  — update strategy, focus mode, channel, rollback calendar
   DevMode  — kits, tools, environments, Lima, devmode toggle
   AI       — GPU-accelerated AI stack management (hidden when no GPU detected)
 """
+
+from __future__ import annotations
 
 import asyncio
 from typing import Any

@@ -15,7 +15,7 @@ import contextlib
 import json
 from pathlib import Path
 
-from textual import work
+from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -330,16 +330,21 @@ class UpdatesScreen(Screen[None]):
         elif btn_id == "sched-reboot-manual":
             self._set_manual_reboot()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn_id = event.button.id
-        if btn_id == "btn-update-now":
-            self.action_update_now()
-        elif btn_id == "btn-check":
-            self._check_for_updates()
-        elif btn_id == "btn-op-cancel":
-            self._set_idle("Ready")
-        elif btn_id == "btn-op-confirm":
-            self._ops().set_idle("Ready")
+    @on(Button.Pressed, "#btn-update-now")
+    def _on_update_now(self) -> None:
+        self.action_update_now()
+
+    @on(Button.Pressed, "#btn-check")
+    def _on_check(self) -> None:
+        self._check_for_updates()
+
+    @on(Button.Pressed, "#btn-op-cancel")
+    def _on_op_cancel(self) -> None:
+        self._set_idle("Ready")
+
+    @on(Button.Pressed, "#btn-op-confirm")
+    def _on_op_confirm(self) -> None:
+        self._ops().set_idle("Ready")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Operations
