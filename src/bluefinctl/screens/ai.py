@@ -22,6 +22,7 @@ from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, TabPane
 
+from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import AdwPreferencesGroup, AdwPropertyRow
 
@@ -297,7 +298,7 @@ class AIScreen(Screen[None]):
         stack = stacks_tab._stacks[stack_list.index]
 
         if stack.status == StackStatus.RUNNING:
-            self.notify(f"{stack.name} is already running", title="AI")
+            system_notify("AI", f"{stack.name} is already running")
             return
 
         # Confirmation
@@ -320,10 +321,10 @@ class AIScreen(Screen[None]):
                 ),
             )
             if rc == 0:
-                self.notify(f"{stack.name} deployed", title="AI")
+                system_notify("AI", f"{stack.name} deployed")
                 stacks_tab.refresh_stacks()
             else:
-                self.notify(f"Failed to deploy {stack.name}", severity="error", title="AI")
+                system_notify("AI", f"Failed to deploy {stack.name}", urgency="critical")
 
     async def _install_selected_ai_tool(self) -> None:
         """Install/update the AI tools kit for the selected Tools tab row."""
@@ -334,17 +335,13 @@ class AIScreen(Screen[None]):
         tools_tab = self.query_one(ToolsTab)
         tool = tools_tab.selected_tool()
         if tool is None:
-            self.notify("Select an AI tool first", severity="warning", title="AI")
+            system_notify("AI", "Select an AI tool first", urgency="low")
             return
         if tool.installed:
-            self.notify(f"{tool.name} is already installed", title="AI")
+            system_notify("AI", f"{tool.name} is already installed")
             return
         if tool.source != BUNDLE_AI_TOOLS_SOURCE:
-            self.notify(
-                f"{tool.name} is managed outside bluefinctl",
-                severity="warning",
-                title="AI",
-            )
+            system_notify("AI", f"{tool.name} is managed outside bluefinctl", urgency="low")
             return
 
         confirmed = await self.app.push_screen_wait(
@@ -363,10 +360,10 @@ class AIScreen(Screen[None]):
             ),
         )
         if rc == 0:
-            self.notify("AI Tools kit installed", title="AI")
+            system_notify("AI", "AI Tools kit installed")
             tools_tab.refresh_tools()
         else:
-            self.notify("Failed to install AI Tools kit", severity="error", title="AI")
+            system_notify("AI", "Failed to install AI Tools kit", urgency="critical")
 
     async def action_stop_stack(self) -> None:
         """Stop the selected running stack."""
@@ -384,7 +381,7 @@ class AIScreen(Screen[None]):
 
         stack = stacks_tab._stacks[stack_list.index]
         if stack.status != StackStatus.RUNNING:
-            self.notify(f"{stack.name} is not running", severity="warning", title="AI")
+            system_notify("AI", f"{stack.name} is not running", urgency="low")
             return
 
         rc = await self.app.push_screen_wait(
@@ -394,10 +391,10 @@ class AIScreen(Screen[None]):
             ),
         )
         if rc == 0:
-            self.notify(f"{stack.name} stopped", title="AI")
+            system_notify("AI", f"{stack.name} stopped")
             stacks_tab.refresh_stacks()
         else:
-            self.notify(f"Failed to stop {stack.name}", severity="error", title="AI")
+            system_notify("AI", f"Failed to stop {stack.name}", urgency="critical")
 
     async def action_stack_logs(self) -> None:
         """View logs for the selected stack."""

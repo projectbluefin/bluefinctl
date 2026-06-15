@@ -10,15 +10,16 @@ Number-key bindings and the Command Palette still work as before.
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static
 
+# AI screen is registered in the app but excluded from the nav for 1.0.
 NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("system",  "System",    "1"),
     ("updates", "Updates",   "2"),
     ("devmode", "Developer", "3"),
-    ("ai",      "AI",        "4"),
 )
 
 
@@ -51,8 +52,8 @@ class ViewSwitcherTab(Static):
         if active:
             self.add_class("-active")
 
-    def render(self) -> str:
-        return self._tab_name
+    def render(self) -> Text:
+        return Text(self._tab_name, justify="center")
 
     def on_click(self) -> None:
         self.app.action_goto(self._slug)  # type: ignore[attr-defined]

@@ -73,7 +73,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | Item | Status |
 |------|--------|
 | Feature portal — no tabs, no devmode switch, no modals | ✅ |
-| Two-column layout (Cloud Native left, Editors + Virt right) | ✅ |
+| Two-column layout (Cloud Native + Virtualization left, Editors right) | ✅ |
 | Scrollbar — `#adw-content { height: 1fr }` | ✅ |
 | AdwActionRow height capped at 3, subtitle overflow-x: hidden | ✅ |
 | Silent `dx-group` provisioning on mount | ✅ |
@@ -82,7 +82,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | — The Bluefin WSL Experience (Lima/CNCF, top tier, preselects VS Code) | ✅ |
 | — Incus (homebrew, third tier, fully supported) | ✅ |
 | — Docker | ✅ |
-| **Editors** group (VS Code, VSCodium, Zed, JetBrains, Neovim, Helix) | ✅ |
+| **Editors** group (VS Code, JetBrains, Zed, VSCodium, Neovim, Helix) | ✅ |
 | **Virtualization** group (virt-manager + QEMU) | ✅ |
 | Install state detection (concurrent, on mount) | ✅ |
 | OpsBar streaming install progress | ✅ |

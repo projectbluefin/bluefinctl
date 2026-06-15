@@ -17,12 +17,13 @@ import asyncio
 import datetime
 import json
 from pathlib import Path
+from typing import Any
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Vertical
 from textual.message import Message
-from textual.widget import Widget
 from textual.widgets import Label
 
 _CACHE_PATH = Path.home() / ".local" / "state" / "bluefinctl" / "available-images.json"
@@ -61,8 +62,12 @@ def _tag_for_date(base_ref: str, tag_prefix: str, d: datetime.date) -> str:
     return f"{base_ref}:{tag_prefix}-{d.strftime('%Y%m%d')}"
 
 
-class RollbackCalendar(Widget):
+class RollbackCalendar(Vertical):
     """Interactive month calendar for picking a rollback image date.
+
+    Uses Vertical layout with two Label children — one for the calendar
+    grid, one for the hint/status line — so there is no render()
+    vs compose() overlap.
 
     Fire ``RollbackCalendar.DateSelected`` when the user presses Enter on
     a date that has been verified as available.
@@ -97,6 +102,9 @@ class RollbackCalendar(Widget):
         padding: 0 1;
         border: round $panel;
     }
+    RollbackCalendar > #cal-grid {
+        height: auto;
+    }
     RollbackCalendar > #cal-hint {
         color: $text-muted;
         height: 1;
@@ -106,8 +114,8 @@ class RollbackCalendar(Widget):
 
     can_focus = True
 
-    def __init__(self, **kwargs: object) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self._base_ref: str = ""
         self._tag_prefix: str = ""
         self._today = datetime.date.today()
@@ -118,10 +126,12 @@ class RollbackCalendar(Widget):
         self._cache: dict[str, bool] = {}
 
     def compose(self) -> ComposeResult:
-        yield Label("", id="cal-hint")
+        yield Label("", id="cal-grid")
+        yield Label(" Loading image info…", id="cal-hint")
 
     def on_mount(self) -> None:
         self._cache = _load_cache()
+        self._update_grid()
         self._update_hint()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -137,11 +147,13 @@ class RollbackCalendar(Widget):
         self._tag_prefix = tag_prefix
         self._booted_date = booted_date
         self.run_worker(self._verify_recent(days=7), exclusive=True)
-        self.refresh()
+        self._update_grid()
+        self._update_hint()
 
     # ── Rendering ─────────────────────────────────────────────────────────────
 
-    def render(self) -> Text:
+    def _build_grid_text(self) -> Text:
+        """Build the calendar month grid as a Rich Text object."""
         result = Text()
 
         # Month header
@@ -207,30 +219,35 @@ class RollbackCalendar(Widget):
 
         return style, f"{text:3}"
 
+    def _update_grid(self) -> None:
+        """Refresh the calendar grid Label."""
+        import contextlib
+        with contextlib.suppress(Exception):
+            self.query_one("#cal-grid", Label).update(self._build_grid_text())
+
     def _update_hint(self) -> None:
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             hint = self.query_one("#cal-hint", Label)
-        except Exception:  # noqa: BLE001
-            return
-        if self._base_ref:
-            ref = _tag_for_date(self._base_ref, self._tag_prefix, self._cursor)
-            avail = self._avail.get(self._cursor)
-            if avail is True:
-                status = "✓ available — Enter to roll back"
-            elif avail is False:
-                status = "✗ no build on this date"
+            if self._base_ref:
+                ref = _tag_for_date(self._base_ref, self._tag_prefix, self._cursor)
+                avail = self._avail.get(self._cursor)
+                if avail is True:
+                    status = "✓ available — Enter to roll back"
+                elif avail is False:
+                    status = "✗ no build on this date"
+                else:
+                    status = "· verifying…"
+                hint.update(f" {ref}  {status}")
             else:
-                status = "· verifying…"
-            hint.update(f" {ref}  {status}")
-        else:
-            hint.update(" Loading image info…")
+                hint.update(" Loading image info…")
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
     def action_prev_day(self) -> None:
         self._cursor -= datetime.timedelta(days=1)
         self._maybe_verify(self._cursor)
-        self.refresh()
+        self._update_grid()
         self._update_hint()
 
     def action_next_day(self) -> None:
@@ -238,13 +255,13 @@ class RollbackCalendar(Widget):
         if new <= self._today:
             self._cursor = new
             self._maybe_verify(self._cursor)
-            self.refresh()
+            self._update_grid()
             self._update_hint()
 
     def action_prev_week(self) -> None:
         self._cursor -= datetime.timedelta(weeks=1)
         self._maybe_verify(self._cursor)
-        self.refresh()
+        self._update_grid()
         self._update_hint()
 
     def action_next_week(self) -> None:
@@ -252,7 +269,7 @@ class RollbackCalendar(Widget):
         if new <= self._today:
             self._cursor = new
             self._maybe_verify(self._cursor)
-            self.refresh()
+            self._update_grid()
             self._update_hint()
 
     def action_select(self) -> None:
@@ -273,11 +290,10 @@ class RollbackCalendar(Widget):
             self.run_worker(self._verify_one(day))
 
     async def _verify_recent(self, days: int = 7) -> None:
-        """Verify the last N days in the background."""
+        """Verify the last N days concurrently in the background."""
         today = self._today
-        for i in range(days):
-            d = today - datetime.timedelta(days=i)
-            await self._verify_one(d)
+        dates = [today - datetime.timedelta(days=i) for i in range(days)]
+        await asyncio.gather(*[self._verify_one(d) for d in dates])
 
     async def _verify_one(self, day: datetime.date) -> None:
         if not self._base_ref or day > self._today:
@@ -286,7 +302,7 @@ class RollbackCalendar(Widget):
         # Check cache first
         if ref in self._cache:
             self._avail[day] = self._cache[ref]
-            self.refresh()
+            self._update_grid()
             self._update_hint()
             return
 
@@ -294,7 +310,7 @@ class RollbackCalendar(Widget):
         self._avail[day] = available
         self._cache[ref] = available
         _save_cache(self._cache)
-        self.refresh()
+        self._update_grid()
         self._update_hint()
 
 

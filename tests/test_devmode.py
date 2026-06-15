@@ -1,13 +1,12 @@
-"""Tests for DevMode tool inventory and interactive tools tab."""
+"""Tests for DevMode screen and developer tool detection."""
 
 from __future__ import annotations
 
 import pytest
-from textual.widgets import ListView
 
 from bluefinctl.app import BluefinCtl
 from bluefinctl.core.devmode import get_dev_tools_status
-from bluefinctl.screens.devmode import DevModeScreen, ToolsTab
+from bluefinctl.screens.devmode import DevModeScreen
 
 
 def test_dev_tools_status_uses_shutil_which(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -23,20 +22,44 @@ def test_dev_tools_status_uses_shutil_which(monkeypatch: pytest.MonkeyPatch) -> 
     assert tools["dive"].installed is False
 
 
-def test_devmode_enter_binding_exists() -> None:
-    """Enter is wired to install the selected tool."""
-    bindings = {(binding.key, binding.action) for binding in DevModeScreen.BINDINGS}
-    assert ("enter", "install_selected_tool") in bindings
+def test_devmode_screen_no_old_bindings() -> None:
+    """New feature-portal design has no 'enter/install', 'a/install_all', or 'c' bindings."""
+    binding_actions = {binding.action for binding in DevModeScreen.BINDINGS}
+    assert "install_selected_tool" not in binding_actions
+    assert "install_all" not in binding_actions
+    assert "launch_podman_tui" not in binding_actions
 
 
 @pytest.mark.asyncio
-async def test_tools_tab_is_interactive_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tools tab renders a selectable ListView, not a static label."""
+async def test_devmode_screen_renders_install_buttons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Developer screen renders Install buttons for all known tool IDs."""
     monkeypatch.setattr("bluefinctl.app._is_bootc_system", lambda: False)
-    monkeypatch.setattr("bluefinctl.core.devmode.shutil.which", lambda _command: None)
+    # Mock all detectors to False (not installed)
+    for detector in (
+        "is_docker_installed",
+        "is_podman_desktop_installed",
+        "is_lima_installed",
+        "is_vscode_installed",
+        "is_vscodium_installed",
+        "is_zed_installed",
+        "is_jetbrains_installed",
+        "is_neovim_installed",
+        "is_helix_installed",
+        "is_vms_installed",
+    ):
+        monkeypatch.setattr(f"bluefinctl.core.devmode.{detector}", lambda: False)
+
+    from textual.widgets import Button
 
     app = BluefinCtl(start_screen="devmode")
     async with app.run_test() as pilot:
         await pilot.pause()
-        tools_tab = app.screen.query_one(ToolsTab)
-        assert isinstance(tools_tab.query_one("#tools-list", ListView), ListView)
+        buttons = app.screen.query(Button)
+        # Each tool should have an Install button
+        btn_ids = {btn.id for btn in buttons}
+        assert "install-docker" in btn_ids
+        assert "install-lima" in btn_ids
+        assert "install-vscode" in btn_ids
+        assert "install-vms" in btn_ids

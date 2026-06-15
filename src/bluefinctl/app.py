@@ -1,11 +1,10 @@
 """Main Textual application for bluefinctl.
 
-Five-screen navigation:
+Three-screen navigation (keys 1-3) + AI screen (key 4, shown only with GPU):
   System   — identity, hardware, health, quick actions
-  Updates  — update strategy, focus mode, channel, rollback
-  Toolkit  — kit management, package install via Command Palette
-  DevMode  — developer tools, environments, Lima
-  AI       — GPU-accelerated AI stack management
+  Updates  — update strategy, focus mode, channel, rollback calendar
+  DevMode  — kits, tools, environments, Lima, devmode toggle
+  AI       — GPU-accelerated AI stack management (hidden when no GPU detected)
 """
 
 import asyncio
@@ -54,7 +53,6 @@ class BluefinCtl(App[None]):
         Binding("1", "goto('screen1')", "Screen 1", show=False),
         Binding("2", "goto('screen2')", "Screen 2", show=False),
         Binding("3", "goto('screen3')", "Screen 3", show=False),
-        Binding("4", "goto('screen4')", "Screen 4", show=False),
     ]
 
     def __init__(self, start_screen: str | None = None, **kwargs: Any) -> None:
@@ -166,15 +164,5 @@ class BluefinCtl(App[None]):
         self.call_after_refresh(self._trigger_toggle_focus)
 
     def _trigger_toggle_focus(self) -> None:
-        from bluefinctl.screens.updates import UpdatesScreen
-        try:
-            screen = self.get_screen("updates")
-            if isinstance(screen, UpdatesScreen):
-                row = screen.query_one("#focus-switch")
-                from bluefinctl.widgets.adw import AdwSwitchRow
-                if isinstance(row, AdwSwitchRow):
-                    new_val = not row.value
-                    row.set_value(new_val)
-                    screen._toggle_focus(new_val)
-        except Exception:  # noqa: BLE001
-            pass
+        # Focus mode removed — reboot strategy replaces it
+        pass

@@ -1,4 +1,4 @@
-"""Updates screen — image info, update schedule, components, focus mode, rollback.
+"""Updates screen — image info, update schedule, components, reboot strategy, rollback.
 
 Design:
   • Full-width monospace image banner at the top (always visible, never truncated)
@@ -22,6 +22,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label
 
+from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import (
     AdwButtonRow,
@@ -33,13 +34,10 @@ from bluefinctl.widgets.ops_bar import OpsBar
 
 
 class UpdatesScreen(Screen[None]):
-    """Updates — image info, schedule, components, focus mode, rollback."""
+    """Updates — image info, schedule, components, reboot strategy, rollback."""
 
     BINDINGS = [
         Binding("u", "update_now", "Update Now"),
-        Binding("s", "channel_stable",  "Stable",  show=False),
-        Binding("t", "channel_testing", "Testing", show=False),
-        Binding("R", "rollback",        "Rollback",show=False),
     ]
 
     DEFAULT_CSS = """
@@ -71,6 +69,12 @@ class UpdatesScreen(Screen[None]):
     /* Two-column layout */
     .adw-cols  { height: auto; }
     .adw-col   { width: 1fr; padding: 0 2; }
+
+    /* Scrollable content area — always show vertical scrollbar */
+    #adw-content {
+        height: 1fr;
+        scrollbar-gutter: stable;
+    }
 
     /* Schedule radio rows — active selection highlighted */
     .sched-row          { color: $text-muted; }
@@ -137,29 +141,27 @@ class UpdatesScreen(Screen[None]):
                         ],
                     )
                     yield AdwPreferencesGroup(
-                        "Pause Updates",
+                        "Reboot Strategy",
                         AdwSwitchRow(
-                            "Pause",
-                            subtitle="Suspend automatic updates (focus mode / deep work)",
-                            id="focus-switch",
+                            "Reboot on Logout",
+                            subtitle=(
+                                "When a staged update exists and you log out, reboot "
+                                "automatically. Pairs with GDM autologin."
+                            ),
+                            id="reboot-on-logout",
                         ),
-                        AdwButtonRow("Snooze 1 hour",        id="btn-snooze-1h"),
-                        AdwButtonRow("Snooze until tonight",  id="btn-snooze-tonight"),
-                        AdwButtonRow("Snooze until tomorrow", id="btn-snooze-tomorrow"),
-                    )
-                    yield AdwPreferencesGroup(
-                        "Release Stream",
-                        AdwPropertyRow("Stream", "Detecting…", id="channel-info"),
-                        AdwButtonRow("Switch to Testing", id="btn-testing"),
-                        AdwButtonRow("Switch to Stable",  id="btn-stable"),
-                    )
-                    yield AdwPreferencesGroup(
-                        "Rollback",
-                        AdwPropertyRow("Previous", "Checking…", id="rollback-info"),
                         AdwButtonRow(
-                            "Roll Back to Previous Build",
-                            variant="destructive",
-                            id="btn-rollback",
+                            "Scheduled Window",
+                            subtitle=(
+                                "Reboot between 2–4\u202fAM if a staged update exists "
+                                "and AC power is connected"
+                            ),
+                            id="sched-reboot-window",
+                        ),
+                        AdwButtonRow(
+                            "Manual",
+                            subtitle="I will reboot myself when ready",
+                            id="sched-reboot-manual",
                         ),
                     )
 
@@ -180,7 +182,7 @@ class UpdatesScreen(Screen[None]):
     async def _load(self) -> None:
         """Populate all fields from system state."""
         from bluefinctl.core.system import get_system_info
-        from bluefinctl.core.updates import UpdateStrategy, get_update_status
+        from bluefinctl.core.updates import UpdateStrategy, get_reboot_strategy, get_update_status
 
         # ── image info ────────────────────────────────────────────────────────
         try:
@@ -200,14 +202,9 @@ class UpdatesScreen(Screen[None]):
             # Channel / stream
             stream = info.image_tag or "unknown"
             self.query_one("#img-channel", AdwPropertyRow).update_value(stream)
-            self.query_one("#channel-info",AdwPropertyRow).update_value(stream)
-            is_testing = "testing" in stream.lower()
-            self.query_one("#btn-testing", AdwButtonRow).display = not is_testing
-            self.query_one("#btn-stable",  AdwButtonRow).display = is_testing
 
             # Compression — async network call; start as separate worker
             if info.clean_image_ref:
-                # Use full_clean_ref for accurate manifest lookup
                 self.run_worker(self._load_compression(info.full_clean_ref), exclusive=False)
 
         except Exception:  # noqa: BLE001
@@ -233,27 +230,6 @@ class UpdatesScreen(Screen[None]):
                 ts_display = ts[:10] if len(ts) >= 10 else (ts or "unknown")
                 self.query_one("#img-last-updated", AdwPropertyRow).update_value(ts_display)
 
-                # Rollback info
-                rollback = data.get("status", {}).get("rollback")
-                if rollback:
-                    prev_ref = (
-                        rollback.get("image", {})
-                                .get("image", {})
-                                .get("image", "")
-                    )
-                    # Strip transport prefix
-                    for pfx in ("ostree-image-signed:docker://", "docker://",
-                                "ostree-image-signed:"):
-                        if prev_ref.startswith(pfx):
-                            prev_ref = prev_ref[len(pfx):]
-                            break
-                    self.query_one("#rollback-info", AdwPropertyRow).update_value(
-                        prev_ref or "unavailable"
-                    )
-                else:
-                    self.query_one("#rollback-info", AdwPropertyRow).update_value("none")
-                    self.query_one("#btn-rollback", AdwButtonRow).disabled = True
-
         # ── update strategy ───────────────────────────────────────────────────
         try:
             status = await get_update_status()
@@ -265,17 +241,20 @@ class UpdatesScreen(Screen[None]):
             }.get(status.strategy, "sched-auto")
             self._set_schedule_selection(label)
 
-            # Focus mode
-            if status.focus_mode and status.focus_mode.active:
-                self.query_one("#focus-switch", AdwSwitchRow).set_value(True)
-                self._set_idle("⏸  Updates paused — focus mode active")
-            elif status.brew_updates > 0:
+            if status.brew_updates > 0:
                 self._set_idle(f"↑  {status.brew_updates} Homebrew package(s) available")
             else:
                 self._set_idle("✓  Up to date")
 
         except Exception:  # noqa: BLE001
             self._set_idle("Ready")
+
+        # ── reboot strategy switches ──────────────────────────────────────────
+        with contextlib.suppress(Exception):
+            reboot_strategy = get_reboot_strategy()
+            self.query_one("#reboot-on-logout", AdwSwitchRow).set_value(
+                reboot_strategy.get("reboot-on-logout", False)
+            )
 
         # ── layer toggles ─────────────────────────────────────────────────────
         uupd_config = Path("/etc/uupd/config.json")
@@ -304,7 +283,6 @@ class UpdatesScreen(Screen[None]):
 
     def _set_schedule_selection(self, active_id: str) -> None:
         """Highlight the active schedule row, grey out others."""
-        # Map from row id → title (with bullet)
         bullet_map = {
             "sched-auto":   ("● Automatic",   "○ Notify only", "○ Manual"),
             "sched-notify": ("○ Automatic",   "● Notify only", "○ Manual"),
@@ -328,8 +306,8 @@ class UpdatesScreen(Screen[None]):
 
     def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
         row_id = event.row.id
-        if row_id == "focus-switch":
-            self._toggle_focus(event.value)
+        if row_id == "reboot-on-logout":
+            self._set_reboot_on_logout(event.value)
         elif row_id in ("layer-os", "layer-flatpak", "layer-brew"):
             layer_map = {
                 "layer-os":      "bootc",
@@ -347,18 +325,10 @@ class UpdatesScreen(Screen[None]):
         btn_id = event.row.id
         if btn_id in ("sched-auto", "sched-notify", "sched-manual"):
             self._apply_schedule(btn_id)
-        elif btn_id == "btn-stable":
-            self._switch_channel("stable")
-        elif btn_id == "btn-testing":
-            self._switch_channel("testing")
-        elif btn_id == "btn-rollback":
-            self._confirm_rollback()
-        elif btn_id == "btn-snooze-1h":
-            self._snooze(1, "for 1 hour")
-        elif btn_id == "btn-snooze-tonight":
-            self._snooze(self._hours_until_tonight(), "until tonight")
-        elif btn_id == "btn-snooze-tomorrow":
-            self._snooze(self._hours_until_tomorrow(), "until tomorrow morning")
+        elif btn_id == "sched-reboot-window":
+            self._activate_reboot_window()
+        elif btn_id == "sched-reboot-manual":
+            self._set_idle("✓  Manual reboot selected — no automatic reboots")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -377,28 +347,85 @@ class UpdatesScreen(Screen[None]):
 
     @work(exclusive=True)
     async def action_update_now(self) -> None:
-        """Run uupd and show indeterminate progress in the OpsBar."""
-        import shutil
+        """Run a full system update: bootc → flatpak / brew / distrobox."""
+        from bluefinctl.core.update_runner import (
+            run_bootc_upgrade,
+            run_brew_update,
+            run_distrobox_update,
+            run_flatpak_update,
+        )
+        from bluefinctl.util.osc import (
+            osc_notify,
+            osc_progress,
+            osc_progress_clear,
+            osc_progress_indeterminate,
+            set_terminal_title,
+        )
+
         ops = self._ops()
-        if not shutil.which("uupd"):
-            self._set_idle("✗  uupd not found")
-            return
-        self._set_running("Updating system…", stage=0)
+        _stage_label = {
+            "pulling": "Downloading",
+            "importing": "Importing",
+            "staging": "Deploying",
+        }
+
+        # ── Phase 1: bootc ─────────────────────────────────────────────────
+        set_terminal_title("bluefinctl · System Image…")
+        osc_progress_indeterminate()
+        ops.set_running("System Image…")
+
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "pkexec", "/usr/bin/uupd",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-            if proc.returncode == 0:
-                ops.set_complete("✓  Update complete")
-            else:
-                self._set_idle(f"✗  Update failed (exit {proc.returncode})")
-        except FileNotFoundError:
-            self._set_idle("✗  uupd not found")
-        except Exception as e:  # noqa: BLE001
-            self._set_idle(f"✗  {e}")
+            async for event in run_bootc_upgrade():
+                stage = _stage_label.get(event.task, event.task.title() or "Working")
+                if event.type == "ProgressSteps" and event.steps_total > 0:
+                    osc_progress(int(event.steps / event.steps_total * 80))
+                    set_terminal_title(
+                        f"bluefinctl · {stage} {event.steps}/{event.steps_total}"
+                    )
+                    ops.set_running(
+                        f"{stage} {event.steps}/{event.steps_total} layers…",
+                        step=event.steps,
+                        total=event.steps_total,
+                    )
+                elif event.type == "ProgressBytes" and event.bytes_total > 0:
+                    mib = event.bytes_ / (1024 * 1024)
+                    mib_t = event.bytes_total / (1024 * 1024)
+                    ops.set_running(f"{stage}  {mib:.0f}/{mib_t:.0f} MiB…")
+        except Exception as exc:  # noqa: BLE001
+            self._set_idle(f"✗  bootc failed — {exc}")
+            osc_progress_clear()
+            set_terminal_title("")
+            return
+
+        ops.add_completed("System Image")
+        osc_progress(82)
+
+        # ── Phase 2: flatpak · brew · distrobox (parallel) ─────────────────
+        set_terminal_title("bluefinctl · Flatpak · Brew · Distrobox…")
+        ops.set_running("Flatpak · Brew · Distrobox…")
+
+        results = await asyncio.gather(
+            run_flatpak_update(),
+            run_brew_update(),
+            run_distrobox_update(),
+            return_exceptions=True,
+        )
+        for name, result in [
+            ("Flatpak",   results[0]),
+            ("Homebrew",  results[1]),
+            ("Distrobox", results[2]),
+        ]:
+            if isinstance(result, Exception):
+                continue
+            ok, _ = result  # type: ignore[misc]
+            if ok:
+                ops.add_completed(name)
+
+        osc_progress(100)
+        osc_notify("bluefinctl", "System update complete — reboot when ready")
+        ops.set_complete("✓  Update complete — reboot when ready")
+        osc_progress_clear()
+        set_terminal_title("")
 
     @work(exclusive=True)
     async def _check_for_updates(self) -> None:
@@ -436,85 +463,40 @@ class UpdatesScreen(Screen[None]):
             self._set_idle(f"✗  {e}")
 
     @work(exclusive=True)
-    async def _toggle_focus(self, on: bool) -> None:
-        from bluefinctl.core.updates import activate_focus_mode, deactivate_focus_mode
-        if on:
-            await activate_focus_mode()
-            self._set_idle("⏸  Updates paused — focus mode active")
-        else:
-            await deactivate_focus_mode()
-            self._set_idle("▶  Updates resumed")
-
-    @work(exclusive=True)
-    async def _snooze(self, hours: int, label: str) -> None:
-        from bluefinctl.core.updates import activate_focus_mode
-        await activate_focus_mode(duration_hours=hours)
-        self.query_one("#focus-switch", AdwSwitchRow).set_value(True)
-        self._set_idle(f"⏸  Updates snoozed {label}")
-
-    @work(exclusive=True)
-    async def _switch_channel(self, channel: str) -> None:
-        """Switch the bootc image channel after showing a confirm dialog."""
-        from bluefinctl.core.system import get_system_info
-        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
+    async def _set_reboot_on_logout(self, enabled: bool) -> None:
+        from bluefinctl.core.updates import set_reboot_on_logout
+        self._set_running("Configuring reboot-on-logout…")
         try:
-            info = await get_system_info()
-            base_ref = info.clean_image_ref
-            if not base_ref:
-                self.notify("Cannot determine current image ref", severity="error")
-                return
-            target = f"{base_ref}:{'testing' if channel == 'testing' else 'latest'}"
-        except Exception:  # noqa: BLE001
-            self.notify("Cannot determine current image ref", severity="error")
-            return
-
-        confirmed = await self.app.push_screen_wait(
-            ConfirmModal(
-                f"Switch to {channel.capitalize()} Stream",
-                f"Target image:\n  {target}\n\nA reboot is required to apply.",
-            )
-        )
-        if confirmed:
-            await self.app.push_screen_wait(
-                OperationLogModal(
-                    f"Switch to {channel}",
-                    ["pkexec", "bootc", "switch", target],
+            await set_reboot_on_logout(enabled)
+            if enabled:
+                self._set_idle("✓  Reboot on logout enabled")
+                system_notify(
+                    "Reboot on Logout",
+                    "Will reboot automatically when a staged update exists.",
                 )
-            )
-            self.notify(f"Switched to {channel} stream. Reboot to apply.", title="Stream")
-            self.run_worker(self._load(), exclusive=True)
+            else:
+                self._set_idle("✓  Reboot on logout disabled")
+        except Exception as exc:  # noqa: BLE001
+            self._set_idle(f"✗  {exc}")
 
     @work(exclusive=True)
-    async def _confirm_rollback(self) -> None:
-        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
-        confirmed = await self.app.push_screen_wait(
-            ConfirmModal(
-                "Roll Back OS Image",
-                "Roll back to the previous image?\nA reboot is required to apply.",
-            )
-        )
-        if confirmed:
-            self._set_running("Rolling back…")
-            rc = await self.app.push_screen_wait(
-                OperationLogModal("Rollback", ["pkexec", "bootc", "rollback"])
-            )
-            if rc == 0:
-                self._set_idle("✓  Rollback staged — reboot to apply")
+    async def _activate_reboot_window(self) -> None:
+        from bluefinctl.core.updates import get_reboot_strategy, set_scheduled_reboot_window
+        strategy = get_reboot_strategy()
+        already_on = strategy.get("sched-reboot-window", False)
+        self._set_running("Configuring scheduled reboot window…")
+        try:
+            await set_scheduled_reboot_window(not already_on)
+            if not already_on:
+                self._set_idle("✓  Scheduled window enabled (2–4\u202fAM)")
+                system_notify(
+                    "Scheduled Reboot Window",
+                    "Will reboot at 2 AM when staged update + AC power.",
+                )
             else:
-                self._set_idle(f"✗  Rollback failed (exit {rc})")
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Keybinding actions
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def action_channel_stable(self) -> None:
-        self._switch_channel("stable")
-
-    def action_channel_testing(self) -> None:
-        self._switch_channel("testing")
-
-    def action_rollback(self) -> None:
-        self._confirm_rollback()
+                self._set_idle("✓  Scheduled window disabled")
+        except Exception as exc:  # noqa: BLE001
+            self._set_idle(f"✗  {exc}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Bottom bar helpers
@@ -528,23 +510,3 @@ class UpdatesScreen(Screen[None]):
 
     def _set_running(self, message: str, stage: int = 0) -> None:
         self._ops().set_running(message, stage=stage)
-
-    @staticmethod
-    def _hours_until_tonight() -> int:
-        from datetime import datetime, timedelta
-        now    = datetime.now()
-        target = now.replace(hour=22, minute=0, second=0, microsecond=0)
-        if now.hour >= 22:
-            target = (now + timedelta(days=1)).replace(
-                hour=22, minute=0, second=0, microsecond=0
-            )
-        return max(1, int((target - now).total_seconds() / 3600))
-
-    @staticmethod
-    def _hours_until_tomorrow() -> int:
-        from datetime import datetime, timedelta
-        now    = datetime.now()
-        target = (now + timedelta(days=1)).replace(
-            hour=8, minute=0, second=0, microsecond=0
-        )
-        return max(1, int((target - now).total_seconds() / 3600))

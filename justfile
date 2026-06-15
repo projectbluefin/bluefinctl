@@ -6,7 +6,7 @@ default:
 
 # Run the TUI in a terminal
 run:
-    python3 -m bluefinctl
+    pip3 install -e . -q && bctl
 
 # Run with hot-reload CSS (development mode)
 dev:

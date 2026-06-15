@@ -313,7 +313,54 @@ class ViewSwitcherTab(Static):
         return Text(self._tab_name, justify="center")
 ```
 
-## Container base classes for tabs
+## Rich Progress for CLI headless commands
+
+For `bctl <command>` headless paths that need a live display (not a full TUI), subclass `Progress` and override `get_renderables()` to add a header Panel above the task table:
+
+```python
+class UpdateProgress(Progress):
+    def __init__(self, info: ImageInfo, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._info = info
+
+    def get_renderables(self) -> object:  # type: ignore[override]
+        yield Panel(header_text, border_style="dim white", padding=(0, 0))
+        yield self.make_tasks_table(self.tasks)
+```
+
+Add custom fields to tasks via kwargs (e.g., `detail=`) — reference them in `TextColumn` as `{task.fields[detail]}`.
+
+## bootc --progress-fd JSON schema
+
+`sudo bootc upgrade --quiet --progress-fd N` writes JSON lines to fd N:
+
+```json
+{"type": "ProgressSteps", "task": "pulling", "steps": 12, "stepsTotal": 23, "bytes": 0, "bytesTotal": 0}
+{"type": "ProgressBytes", "task": "pulling", "steps": 12, "stepsTotal": 23, "bytes": 152399872, "bytesTotal": 327155712}
+```
+
+Stage → OSC% mapping (mirrors uupd): `pulling` 0–80%, `importing` 80–90%, `staging` 90–100%.
+
+Use `os.pipe()` + `pass_fds=(w_fd,)` to pass the write fd to the subprocess. `sudo` preserves non-tty file descriptors by default — this works.
+
+```python
+r_fd, w_fd = os.pipe()
+proc = await asyncio.create_subprocess_exec(
+    "sudo", "bootc", "upgrade", "--quiet", "--progress-fd", str(w_fd),
+    pass_fds=(w_fd,),
+)
+os.close(w_fd)  # parent closes write end
+# wrap r_fd with loop.connect_read_pipe() for async reads
+```
+
+## Full-update stage order (bctl update)
+
+1. `sudo bootc upgrade --quiet --progress-fd N` — sequential (needs root, large, first)
+2. Parallel via `asyncio.gather()`: `flatpak update -y --noninteractive`, `brew update && brew upgrade`, `distrobox upgrade -a`
+
+All runners live in `core/update_runner.py`. Display lives in the `update` command in `cli.py`.
+
+
 
 When a tab widget has a two-pane horizontal layout, extend `Horizontal` directly rather than `Static` with `layout: horizontal` CSS. `Static` is for text display; `Horizontal`/`Vertical` are the correct layout containers.
 

@@ -168,7 +168,7 @@ def _is_timer_masked() -> bool:
 
 async def get_update_status() -> UpdateStatus:
     """Gather current update status."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     timer_active = await loop.run_in_executor(None, _is_timer_active)
     timer_masked = await loop.run_in_executor(None, _is_timer_masked)
@@ -353,3 +353,114 @@ def run_update(check_only: bool = False) -> None:
             console.print("[green]ok[/green] Update triggered successfully")
         else:
             console.print(f"[red]X[/red] Failed: {result.stderr.strip()}")
+
+
+# ─── Smart Reboot Strategies ──────────────────────────────────────────────────
+
+_REBOOT_CONFIG_DIR  = Path.home() / ".config" / "bluefinctl"
+_REBOOT_MARKER      = _REBOOT_CONFIG_DIR / "reboot-on-logout"
+_REBOOT_SERVICE_DIR = Path.home() / ".config" / "systemd" / "user" / "session.target.wants"
+_REBOOT_SERVICE     = _REBOOT_SERVICE_DIR / "bluefinctl-reboot.service"
+_TIMER_FILE = Path.home() / ".config" / "systemd" / "user" / "bluefinctl-reboot-window.timer"
+_TIMER_SERVICE_FILE = _TIMER_FILE.parent / "bluefinctl-reboot-window.service"
+_REBOOT_LOG = Path.home() / ".local" / "share" / "bluefinctl" / "reboot-skipped.log"
+
+_REBOOT_SERVICE_UNIT = """\
+[Unit]
+Description=Reboot on logout if staged update exists
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStopPost=/bin/sh -c '\
+  if bootc status --json 2>/dev/null | jq -e .status.staged >/dev/null 2>&1 && \
+     ! systemd-inhibit --list --no-pager 2>/dev/null | grep -qE '\'\'audio|video|idle'\'' ; then \
+    systemctl reboot; \
+  fi'
+
+[Install]
+WantedBy=graphical-session.target
+"""
+
+_REBOOT_TIMER_UNIT = """\
+[Unit]
+Description=Reboot window for staged OS updates (2 AM)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
+_REBOOT_TIMER_SERVICE_UNIT = """\
+[Unit]
+Description=Apply staged OS update in reboot window
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '\
+  if bootc status --json 2>/dev/null | jq -e .status.staged >/dev/null 2>&1 && \
+     cat /sys/class/power_supply/AC*/online 2>/dev/null | grep -q 1 && \
+     ! systemd-inhibit --list --no-pager 2>/dev/null | grep -qE '\'\'audio|video|idle'\'' ; then \
+    systemctl reboot; \
+  else \
+    mkdir -p ~/.local/share/bluefinctl && \
+    echo "$(date -Iseconds) reboot skipped" >> ~/.local/share/bluefinctl/reboot-skipped.log; \
+  fi'
+"""
+
+
+def get_reboot_strategy() -> dict[str, bool]:
+    """Return the current reboot-strategy switch states."""
+    return {
+        "reboot-on-logout":   _REBOOT_MARKER.exists(),
+        "sched-reboot-window": _TIMER_FILE.exists(),
+    }
+
+
+async def set_reboot_on_logout(enabled: bool) -> None:
+    """Enable or disable the reboot-on-logout strategy."""
+    if enabled:
+        _REBOOT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        _REBOOT_MARKER.touch(exist_ok=True)
+        _REBOOT_SERVICE_DIR.mkdir(parents=True, exist_ok=True)
+        _REBOOT_SERVICE.write_text(_REBOOT_SERVICE_UNIT)
+    else:
+        _REBOOT_MARKER.unlink(missing_ok=True)
+        _REBOOT_SERVICE.unlink(missing_ok=True)
+
+    proc = await asyncio.create_subprocess_exec(
+        "systemctl", "--user", "daemon-reload",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+
+
+async def set_scheduled_reboot_window(enabled: bool) -> None:
+    """Enable or disable the 2 AM scheduled-reboot-window timer."""
+    if enabled:
+        _TIMER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _TIMER_FILE.write_text(_REBOOT_TIMER_UNIT)
+        _TIMER_SERVICE_FILE.write_text(_REBOOT_TIMER_SERVICE_UNIT)
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "--user", "enable", "--now",
+            "bluefinctl-reboot-window.timer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "--user", "disable", "--now",
+            "bluefinctl-reboot-window.timer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    await proc.wait()
+    if not enabled:
+        _TIMER_FILE.unlink(missing_ok=True)
+        _TIMER_SERVICE_FILE.unlink(missing_ok=True)

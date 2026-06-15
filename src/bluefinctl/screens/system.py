@@ -10,6 +10,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Button
 
+from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
 from bluefinctl.widgets.adw import (
     AdwButtonRow,
@@ -27,15 +28,13 @@ class SystemScreen(Screen[None]):
 
     BINDINGS = [
         ("u", "update_all", "Update"),
-        ("d", "toggle_devmode", "Devmode"),
-        ("r", "system_report", "Report"),
-        ("c", "launch_podman_tui", "podman-tui"),
     ]
 
     DEFAULT_CSS = """
     SystemScreen { layout: vertical; }
     .adw-cols { height: auto; }
     .adw-col  { width: 1fr; padding: 0 2; }
+    #adw-content { height: 1fr; scrollbar-gutter: stable; }
     """
 
     def compose(self) -> ComposeResult:
@@ -88,14 +87,7 @@ class SystemScreen(Screen[None]):
                     yield AdwPreferencesGroup(
                         "Quick Actions",
                         AdwButtonsRow(
-                            Button("Update All",       variant="primary", id="btn-update-all"),
-                            Button("Developer Mode",               id="btn-devmode"),
-                            id="quick-row-1",
-                        ),
-                        AdwButtonsRow(
-                            Button("System Report",                id="btn-report"),
-                            Button("podman-tui",                   id="btn-podman-tui"),
-                            id="quick-row-2",
+                            Button("Update All", variant="primary", id="btn-update-all"),
                         ),
                     )
         yield OpsBar()
@@ -113,7 +105,7 @@ class SystemScreen(Screen[None]):
     async def _load_identity(self) -> None:
         from bluefinctl.core.system import get_system_info
         info = await get_system_info()
-        self.query_one("#sys-image",    AdwPropertyRow).update_value(info.clean_image_ref)
+        self.query_one("#sys-image",    AdwPropertyRow).update_value(info.full_clean_ref)
         self.query_one("#sys-boot",     AdwPropertyRow).update_value(info.boot_status)
         self.query_one("#sys-hostname", AdwPropertyRow).update_value(info.hostname)
 
@@ -133,10 +125,8 @@ class SystemScreen(Screen[None]):
         import contextlib
         with contextlib.suppress(Exception):
             cal = self.query_one(RollbackCalendar)
-            if info.image_ref and ":" in info.clean_image_ref:
-                base = info.clean_image_ref.rsplit(":", 1)[0]
-                tag  = info.image_tag or "latest"
-                cal.configure(base, tag)
+            if info.image_ref:
+                cal.configure(info.clean_image_ref, info.image_tag or "latest")
 
     async def _load_health(self) -> None:
         # GPU driver
@@ -224,15 +214,14 @@ class SystemScreen(Screen[None]):
         btn_id = event.button.id
         if btn_id == "btn-update-all":
             self._do_update_all()
-        elif btn_id == "btn-devmode":
-            self.action_toggle_devmode()
-        elif btn_id == "btn-report":
-            self.action_system_report()
-        elif btn_id == "btn-podman-tui":
-            self.action_launch_podman_tui()
-        elif btn_id in ("btn-op-confirm", "btn-op-cancel"):
-            # Handled by OpsBar internally — nothing to do here
-            pass
+        elif btn_id == "btn-op-confirm":
+            op = self.query_one(OpsBar).pending_op or ""
+            if op == "rollback":
+                self._exec_rollback(None)
+            elif op.startswith("rollback:"):
+                self._exec_rollback(op.split(":", 1)[1])
+        elif btn_id == "btn-op-cancel":
+            self.query_one(OpsBar).set_idle("Ready")
 
     def on_adw_button_row_pressed(self, event: AdwButtonRow.Pressed) -> None:
         btn_id = event.row.id
@@ -311,15 +300,6 @@ class SystemScreen(Screen[None]):
         what = label or image_ref
         ops.set_confirm(f"Roll back to {what}?", f"rollback:{image_ref}")
 
-    # Ops-bar confirm handler
-    def on_adw_ops_bar_confirmed(self, _event: object) -> None:
-        ops = self.query_one(OpsBar)
-        op  = ops.pending_op or ""
-        if op == "rollback":
-            self._exec_rollback(None)
-        elif op.startswith("rollback:"):
-            self._exec_rollback(op.split(":", 1)[1])
-
     @work(exclusive=True)
     async def _exec_rollback(self, image_ref: str | None) -> None:
         ops = self.query_one(OpsBar)
@@ -371,7 +351,7 @@ class SystemScreen(Screen[None]):
                     OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
                 )
                 if rc == 0:
-                    self.notify("Developer mode disabled. Log out to apply.", title="DevMode")
+                    system_notify("DevMode", "Developer mode disabled. Log out to apply.")
         else:
             confirmed = await self.app.push_screen_wait(
                 ConfirmModal("Enable Developer Mode", "Add groups: docker, mock, lxd?")
@@ -386,7 +366,7 @@ class SystemScreen(Screen[None]):
                     OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
                 )
                 if rc == 0:
-                    self.notify("Developer mode enabled. Log out to apply.", title="DevMode")
+                    system_notify("DevMode", "Developer mode enabled. Log out to apply.")
 
     @work(exclusive=True)
     async def action_system_report(self) -> None:
@@ -417,4 +397,4 @@ class SystemScreen(Screen[None]):
         if shutil.which("podman-tui"):
             launch_in_terminal(["podman-tui"], title="podman-tui")
         else:
-            self.notify("podman-tui not installed", severity="warning", title="Containers")
+            system_notify("Containers", "podman-tui not installed", urgency="low")
