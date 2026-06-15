@@ -13,8 +13,7 @@ Built on [Textual](https://textual.textualize.io/). Matches your GNOME accent co
 ## Install
 
 ```bash
-brew trust --tap projectbluefin/bluefinctl
-brew install bluefinctl
+brew trust --tap projectbluefin/bluefinctl && brew install bluefinctl
 ```
 
 **What the formula installs:**
@@ -25,7 +24,7 @@ and symlinks `bctl` and `bluefinctl` into `$(brew --prefix)/bin`. No pre/post-in
 hooks, no elevated-privilege scripts.
 
 You can read the formula at
-[`Formula/bluefinctl.rb`](https://github.com/projectbluefin/bluefinctl/blob/main/Formula/bluefinctl.rb)
+[`bluefinctl.rb`](https://github.com/projectbluefin/homebrew-bluefinctl/blob/main/bluefinctl.rb)
 before tapping.
 
 ### From source
