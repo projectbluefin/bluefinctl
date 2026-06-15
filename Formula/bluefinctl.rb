@@ -3,26 +3,26 @@ class Bluefinctl < Formula
 
   desc "TUI control panel for Bluefin OS — packages, updates, containers, devmode"
   homepage "https://github.com/projectbluefin/bluefinctl"
-  url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.1.0/bluefinctl-0.1.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
-  version "0.1.0"
+  url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.2.0/bluefinctl-0.2.0.tar.gz"
+  sha256 "f43279a117502fadd58ac1953d92a9a1e4592b10a1cbda0d446784faafbe7dcb"
+  version "0.2.0"
   license "MIT"
 
   depends_on "python@3.13"
 
   resource "textual" do
-    url "https://files.pythonhosted.org/packages/textual-1.0.0.tar.gz"
-    sha256 "placeholder"
+    url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.2.0/bluefinctl-0.2.0.tar.gz"
+    sha256 "f43279a117502fadd58ac1953d92a9a1e4592b10a1cbda0d446784faafbe7dcb"
   end
 
   resource "typer" do
-    url "https://files.pythonhosted.org/packages/typer-0.12.0.tar.gz"
-    sha256 "placeholder"
+    url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.2.0/bluefinctl-0.2.0.tar.gz"
+    sha256 "f43279a117502fadd58ac1953d92a9a1e4592b10a1cbda0d446784faafbe7dcb"
   end
 
   resource "rich" do
-    url "https://files.pythonhosted.org/packages/rich-13.0.0.tar.gz"
-    sha256 "placeholder"
+    url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.2.0/bluefinctl-0.2.0.tar.gz"
+    sha256 "f43279a117502fadd58ac1953d92a9a1e4592b10a1cbda0d446784faafbe7dcb"
   end
 
   def install
