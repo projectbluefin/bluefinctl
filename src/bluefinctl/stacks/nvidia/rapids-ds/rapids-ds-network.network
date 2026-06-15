@@ -1,0 +1,4 @@
+[Unit]
+Description=Isolated network for rapids-ds
+
+[Network]

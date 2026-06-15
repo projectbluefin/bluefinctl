@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+from typing import Any
+
 from textual.message import Message
 from textual.widgets import RichLog
 
@@ -19,7 +22,7 @@ class LogView(RichLog):
             super().__init__()
             self.return_code = return_code
 
-    def __init__(self, cmd: list[str], **kwargs) -> None:
+    def __init__(self, cmd: list[str], **kwargs: Any) -> None:
         super().__init__(highlight=True, markup=True, wrap=True, **kwargs)
         self._cmd = cmd
 
@@ -31,10 +34,8 @@ class LogView(RichLog):
 
         from bluefinctl.util.osc import osc_progress_clear, osc_progress_indeterminate
 
-        try:
+        with contextlib.suppress(Exception):
             osc_progress_indeterminate()
-        except Exception:
-            pass
 
         rc: int
         try:
@@ -56,10 +57,8 @@ class LogView(RichLog):
             self.write(f"[red]Error: {e}[/red]")
             rc = 1
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 osc_progress_clear()
-            except Exception:
-                pass
 
         if rc == 0:
             self.write("[green]Done.[/green]")

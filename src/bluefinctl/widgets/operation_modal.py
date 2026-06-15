@@ -106,7 +106,7 @@ class OperationModal(ModalScreen[int]):
         title: str,
         command: list[str] | None = None,
         parser: ProgressParser | None = None,
-        steps: AsyncGenerator[ProgressUpdate, None] | None = None,
+        steps: AsyncGenerator[ProgressUpdate] | None = None,
     ) -> None:
         """Create an operation modal.
 

@@ -1,20 +1,24 @@
 """Main Textual application for bluefinctl.
 
-Five-screen navigation:
-  System   — identity, hardware, health, quick actions (bootc systems only)
-  Updates  — update strategy, focus mode, channel, rollback (bootc systems only)
-  Toolkit  — kit management, package install via Command Palette
-  DevMode  — developer tools, environments, Lima
-  AI       — GPU-accelerated AI stack management
+Three-screen navigation (keys 1-3) + AI screen (key 4, shown only with GPU):
+
+  System   — identity, hardware, health, quick actions
+  Updates  — update strategy, focus mode, channel, rollback calendar
+  DevMode  — kits, tools, environments, Lima, devmode toggle
+  AI       — GPU-accelerated AI stack management (hidden when no GPU detected)
 """
 
+from __future__ import annotations
+
+import asyncio
 from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header
 
-from bluefinctl.theme.accent import get_accent_color
+from bluefinctl.commands import ActionsProvider, NavigationProvider, PackageProvider
+from bluefinctl.theme.accent import build_theme, get_accent_color, get_color_scheme
+from bluefinctl.util.osc import set_terminal_title
 
 
 def _is_bootc_system() -> bool:
@@ -38,9 +42,11 @@ def _is_bootc_system() -> bool:
 class BluefinCtl(App[None]):
     """Bluefin OS control panel."""
 
-    TITLE = "bluefinctl"
+    TITLE = "Bluefin Control Center"
 
     CSS_PATH = "theme/bluefin.tcss"
+
+    COMMANDS = {PackageProvider, NavigationProvider, ActionsProvider}
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -49,81 +55,73 @@ class BluefinCtl(App[None]):
         Binding("1", "goto('screen1')", "Screen 1", show=False),
         Binding("2", "goto('screen2')", "Screen 2", show=False),
         Binding("3", "goto('screen3')", "Screen 3", show=False),
-        Binding("4", "goto('screen4')", "Screen 4", show=False),
-        Binding("5", "goto('screen5')", "Screen 5", show=False),
     ]
 
     def __init__(self, start_screen: str | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._start_screen = start_screen
-        self._accent_color = get_accent_color()
         self._is_bootc = _is_bootc_system()
-        # Screen name -> number key mapping, set in on_mount
-        self._screen_keys: dict[str, str] = {}
+        self._screen_keys: dict[str, str] = {
+            "screen1": "system",
+            "screen2": "updates",
+            "screen3": "devmode",
+            "screen4": "ai",
+        }
+
+    def _apply_system_theme(self) -> None:
+        """Read current GNOME color-scheme + accent and register/activate theme."""
+        scheme = get_color_scheme()
+        accent = get_accent_color()
+        theme = build_theme(scheme, accent)
+        self.register_theme(theme)
+        self.theme = theme.name
 
     def on_mount(self) -> None:
-        from textual.theme import Theme
-
         from bluefinctl.screens.ai import AIScreen
         from bluefinctl.screens.devmode import DevModeScreen
-        from bluefinctl.screens.toolkit import ToolkitScreen
-        from bluefinctl.theme.accent import get_accent_hex
+        from bluefinctl.screens.system import SystemScreen
+        from bluefinctl.screens.updates import UpdatesScreen
 
-        # Register dynamic theme with GNOME accent color
-        accent = get_accent_hex()
-        self.register_theme(Theme(
-            name='bluefin',
-            primary=accent,
-            accent=accent,
-            background='#1a1a2e',
-            surface='#16213e',
-            panel='#1f3460',
-            error='#f44336',
-            warning='#ff9800',
-            success='#4caf50',
-            dark=True,
-        ))
-        self.theme = 'bluefin'
+        # Apply system theme (dark or light, with correct accent)
+        self._apply_system_theme()
 
-        # Build screen list based on platform detection
-        key_num = 1
-        if self._is_bootc:
-            from bluefinctl.screens.system import SystemScreen
-            from bluefinctl.screens.updates import UpdatesScreen
+        # Set terminal window/tab title
+        set_terminal_title(self.TITLE)
 
-            self.install_screen(SystemScreen(), name='system')
-            self._screen_keys[f'screen{key_num}'] = 'system'
-            key_num += 1
+        # Register all screens
+        self.install_screen(SystemScreen(),  name="system")
+        self.install_screen(UpdatesScreen(), name="updates")
+        self.install_screen(DevModeScreen(), name="devmode")
+        self.install_screen(AIScreen(),      name="ai")
 
-            self.install_screen(UpdatesScreen(), name='updates')
-            self._screen_keys[f'screen{key_num}'] = 'updates'
-            key_num += 1
+        self.push_screen(self._start_screen or "system")
 
-        self.install_screen(ToolkitScreen(), name='toolkit')
-        self._screen_keys[f'screen{key_num}'] = 'toolkit'
-        key_num += 1
+        # Watch for live GNOME theme changes
+        self.run_worker(self._watch_system_theme(), exclusive=True)
 
-        self.install_screen(DevModeScreen(), name='devmode')
-        self._screen_keys[f'screen{key_num}'] = 'devmode'
-        key_num += 1
-
-        self.install_screen(AIScreen(), name='ai')
-        self._screen_keys[f'screen{key_num}'] = 'ai'
-
-        # Determine start screen
-        if self._start_screen:
-            start = self._start_screen
-        elif self._is_bootc:
-            start = 'system'
-        else:
-            start = 'toolkit'
-
-        self.push_screen(start)
+    async def _watch_system_theme(self) -> None:
+        """Stream gsettings monitor and switch theme on color-scheme/accent changes."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gsettings", "monitor", "org.gnome.desktop.interface",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if proc.stdout:
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode(errors="replace")
+                    if "color-scheme" in line or "accent-color" in line:
+                        # Clear lru_cache so next read picks up new values
+                        get_color_scheme.cache_clear()
+                        get_accent_color.cache_clear()
+                        self._apply_system_theme()
+        except (FileNotFoundError, OSError):
+            pass  # gsettings not available (non-GNOME system)
 
     def compose(self) -> ComposeResult:
-        """App chrome — header with system identity."""
-        yield Header(show_clock=True)
-        yield Footer()
+        """App chrome — screens handle their own nav and status bars."""
+        return
+        yield  # type: ignore[misc]  # ponytail: empty generator
 
     @property
     def is_bootc(self) -> bool:
@@ -139,7 +137,6 @@ class BluefinCtl(App[None]):
 
         Accepts both 'screenN' (key binding) and direct names like 'system'.
         """
-        # Resolve 'screenN' keys to actual screen names
         if screen in self._screen_keys:
             screen = self._screen_keys[screen]
         self.switch_screen(screen)
@@ -147,3 +144,57 @@ class BluefinCtl(App[None]):
     def action_help(self) -> None:
         from bluefinctl.screens._modals import HelpModal
         self.push_screen(HelpModal())
+
+    def action_toggle_devmode(self) -> None:
+        """Navigate to System screen and toggle developer mode."""
+        self.switch_screen("system")
+        self.call_after_refresh(self._trigger_toggle_devmode)
+
+    def _trigger_toggle_devmode(self) -> None:
+        from bluefinctl.screens.system import SystemScreen
+        try:
+            screen = self.get_screen("system")
+            if isinstance(screen, SystemScreen):
+                screen.action_toggle_devmode()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def action_launch_podman_tui(self) -> None:
+        """Launch podman-tui in a terminal window."""
+        import shutil
+
+        from bluefinctl.core.notify import system_notify
+        from bluefinctl.util.terminal import launch_in_terminal
+        if shutil.which("podman-tui"):
+            launch_in_terminal(["podman-tui"], title="podman-tui")
+        else:
+            system_notify("Containers", "podman-tui not installed", urgency="low")
+
+    def action_system_report(self) -> None:
+        """Navigate to System screen and submit a diagnostics report."""
+        self.switch_screen("system")
+        self.call_after_refresh(self._trigger_system_report)
+
+    def _trigger_system_report(self) -> None:
+        from bluefinctl.screens.system import SystemScreen
+        try:
+            screen = self.get_screen("system")
+            if isinstance(screen, SystemScreen):
+                screen.action_system_report()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def action_update_now(self) -> None:
+        """Switch to Updates screen and trigger an update (Command Palette entry point)."""
+        self.switch_screen("updates")
+        # Dispatch to the screen once it's active
+        self.call_after_refresh(self._trigger_update_now)
+
+    def _trigger_update_now(self) -> None:
+        from bluefinctl.screens.updates import UpdatesScreen
+        try:
+            screen = self.get_screen("updates")
+            if isinstance(screen, UpdatesScreen):
+                screen.action_update_now()
+        except Exception:  # noqa: BLE001
+            pass

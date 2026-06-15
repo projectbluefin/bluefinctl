@@ -11,16 +11,19 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from dataclasses import dataclass, field
-from enum import Enum
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
+
+from bluefinctl.core.progress import BrewInstallParser, ProgressUpdate
 
 SYSTEM_BREWFILES = Path("/usr/share/ublue-os/homebrew")
 STATE_DIR = Path.home() / ".config" / "bluefinctl"
 STATE_FILE = STATE_DIR / "state.json"
 
 
-class BundleCategory(str, Enum):
+class BundleCategory(StrEnum):
     """Visual grouping for bundles."""
 
     FOUNDATION = "Foundation"
@@ -30,30 +33,26 @@ class BundleCategory(str, Enum):
     DESKTOP = "Desktop"
 
 
-class BundleState(str, Enum):
+class BundleState(StrEnum):
     """Whether a bundle is active on this system."""
 
-    BASE = "base"          # Always active (cli.Brewfile) — can't remove
-    ACTIVE = "active"      # User opted in
-    AVAILABLE = "available"  # Not installed
-    PARTIAL = "partial"    # Some packages installed, not all
+    BASE = "base"
+    ACTIVE = "active"
+    AVAILABLE = "available"
+    PARTIAL = "partial"
 
-
-# ─── Bundle Registry ─────────────────────────────────────────
-# Maps Brewfile stem → metadata. This is the knowledge of what
-# each bundle IS — names, descriptions, categories.
 
 @dataclass
 class BundleMeta:
     """Static metadata for a bundle."""
 
-    slug: str              # Filename stem (e.g., "cli", "ai-tools")
-    name: str              # Human-friendly display name
-    description: str       # One-line description
+    slug: str
+    name: str
+    description: str
     category: BundleCategory
-    icon: str              # Emoji icon for the list
-    base: bool = False     # True = always active, can't deactivate
-    package_count: int = 0  # Populated at runtime
+    icon: str
+    base: bool = False
+    package_count: int = 0
 
 
 BUNDLE_REGISTRY: dict[str, BundleMeta] = {
@@ -145,8 +144,6 @@ BUNDLE_REGISTRY: dict[str, BundleMeta] = {
 }
 
 
-# ─── Runtime Bundle State ─────────────────────────────────────
-
 @dataclass
 class Bundle:
     """A bundle with runtime state."""
@@ -170,18 +167,30 @@ class Bundle:
         """Return a status character for the sidebar/list."""
         match self.state:
             case BundleState.BASE:
-                return "#"  # Solid — always on
+                return "#"
             case BundleState.ACTIVE:
-                return "*"  # Filled circle — opted in
+                return "*"
             case BundleState.PARTIAL:
-                return "~"  # Half — partially installed
+                return "~"
             case BundleState.AVAILABLE:
-                return "."  # Empty — not installed
+                return "."
+            case _:
+                return "?"
+
+
+@dataclass(frozen=True)
+class DeactivationPreview:
+    """Safe package plan for bundle deactivation."""
+
+    slug: str
+    removable_packages: tuple[str, ...]
+    shared_packages: tuple[str, ...]
+    missing_packages: tuple[str, ...]
 
 
 def _parse_brewfile_names(path: Path) -> list[str]:
     """Extract package/cask/flatpak names from a Brewfile."""
-    names = []
+    names: list[str] = []
     if not path.exists():
         return names
 
@@ -189,7 +198,6 @@ def _parse_brewfile_names(path: Path) -> list[str]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Parse: brew "name", cask "name", flatpak "name"
         for prefix in ("brew ", "cask ", "flatpak "):
             if line.startswith(prefix):
                 rest = line[len(prefix):]
@@ -243,23 +251,20 @@ def _get_installed_flatpaks() -> set[str]:
 
 async def get_bundles() -> list[Bundle]:
     """Discover all available bundles and their activation state."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
-    # Get what's installed
     installed_formulae = await loop.run_in_executor(None, _get_installed_formulae)
     installed_flatpaks = await loop.run_in_executor(None, _get_installed_flatpaks)
     all_installed = installed_formulae | installed_flatpaks
 
     bundles: list[Bundle] = []
 
-    # Discover system Brewfiles
     if SYSTEM_BREWFILES.exists():
         for brewfile in sorted(SYSTEM_BREWFILES.glob("*.Brewfile")):
             slug = brewfile.stem
             meta = BUNDLE_REGISTRY.get(slug)
 
             if meta is None:
-                # Unknown bundle (not in registry) — create minimal metadata
                 meta = BundleMeta(
                     slug=slug,
                     name=slug.replace("-", " ").title(),
@@ -268,11 +273,9 @@ async def get_bundles() -> list[Bundle]:
                     icon="--",
                 )
 
-            # Parse contents and check installation state
             packages = await loop.run_in_executor(None, _parse_brewfile_names, brewfile)
-            meta.package_count = len(packages)
+            meta = replace(meta, package_count=len(packages))
 
-            # Determine state by checking how many packages are installed
             installed_count = sum(1 for p in packages if p in all_installed)
             total_count = len(packages)
 
@@ -298,56 +301,156 @@ async def get_bundles() -> list[Bundle]:
     return bundles
 
 
-async def activate_bundle(slug: str) -> bool:
-    """Install a bundle (brew bundle --file=...)."""
-    brewfile = SYSTEM_BREWFILES / f"{slug}.Brewfile"
-    if not brewfile.exists():
-        return False
+async def preview_bundle_deactivation(slug: str) -> DeactivationPreview:
+    """Return the safe deactivation plan for a bundle.
 
-    proc = await asyncio.create_subprocess_exec(
-        "brew", "bundle", "install", f"--file={brewfile}",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    await proc.communicate()
-    return proc.returncode == 0
-
-
-async def deactivate_bundle(slug: str) -> tuple[bool, list[str]]:
-    """Deactivate a bundle — uninstall its packages that aren't in other active bundles.
-
-    Returns (success, list of packages that were removed).
+    Only installed packages unique to the selected bundle are removable. Packages
+    also present in another active/base/partial bundle are protected as shared.
     """
     brewfile = SYSTEM_BREWFILES / f"{slug}.Brewfile"
     if not brewfile.exists():
-        return False, []
-
-    # Get this bundle's packages
-    target_packages = set(_parse_brewfile_names(brewfile))
-
-    # Get packages from all OTHER active bundles (don't remove shared packages)
-    all_bundles = await get_bundles()
-    shared_packages: set[str] = set()
-    for bundle in all_bundles:
-        if bundle.meta.slug != slug and bundle.state in (BundleState.ACTIVE, BundleState.BASE):
-            other_brewfile = SYSTEM_BREWFILES / f"{bundle.meta.slug}.Brewfile"
-            shared_packages.update(_parse_brewfile_names(other_brewfile))
-
-    # Only remove packages unique to this bundle
-    to_remove = target_packages - shared_packages
-    removed = []
-
-    for pkg in to_remove:
-        proc = await asyncio.create_subprocess_exec(
-            "brew", "uninstall", "--ignore-dependencies", pkg,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+        return DeactivationPreview(
+            slug=slug,
+            removable_packages=(),
+            shared_packages=(),
+            missing_packages=(),
         )
-        await proc.communicate()
-        if proc.returncode == 0:
-            removed.append(pkg)
 
-    return True, removed
+    target_packages = set(_parse_brewfile_names(brewfile))
+    loop = asyncio.get_running_loop()
+    installed_formulae = await loop.run_in_executor(None, _get_installed_formulae)
+    installed_flatpaks = await loop.run_in_executor(None, _get_installed_flatpaks)
+    installed = installed_formulae | installed_flatpaks
+
+    protected: set[str] = set()
+    for other_brewfile in sorted(SYSTEM_BREWFILES.glob("*.Brewfile")):
+        other_slug = other_brewfile.stem
+        if other_slug == slug:
+            continue
+        other_packages = _parse_brewfile_names(other_brewfile)
+        other_meta = BUNDLE_REGISTRY.get(other_slug)
+        other_installed_count = sum(1 for package in other_packages if package in installed)
+        # Protect packages from any active, base, or partially-installed bundle.
+        # Partial bundles may represent user-selected kit state; silently removing
+        # their packages would break that state without the user knowing.
+        if (other_meta and other_meta.base) or other_installed_count > 0:
+            protected.update(other_packages)
+
+    installed_target = target_packages & installed
+    shared = installed_target & protected
+    removable = installed_target - protected
+    missing = target_packages - installed
+
+    return DeactivationPreview(
+        slug=slug,
+        removable_packages=tuple(sorted(removable)),
+        shared_packages=tuple(sorted(shared)),
+        missing_packages=tuple(sorted(missing)),
+    )
+
+
+async def _run_command_updates(
+    command: list[str],
+    parser: BrewInstallParser,
+) -> AsyncGenerator[ProgressUpdate]:
+    proc = await asyncio.create_subprocess_exec(
+        command[0],
+        *command[1:],
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw_line in proc.stdout:
+            line = raw_line.decode(errors="replace").rstrip()
+            update = parser.parse_line(line)
+            yield update or ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"Command failed ({rc}): {' '.join(command)}")
+
+
+async def activate_bundle_steps(slug: str) -> AsyncGenerator[ProgressUpdate]:
+    """Install a bundle and stream progress updates for OperationModal."""
+    brewfile = SYSTEM_BREWFILES / f"{slug}.Brewfile"
+    if not brewfile.exists():
+        raise FileNotFoundError(f"Bundle not found: {slug}")
+
+    packages = _parse_brewfile_names(brewfile)
+    yield ProgressUpdate(percent=0, step=1, total_steps=2, message=f"Preparing {slug}")
+    async for update in _run_command_updates(
+        ["brew", "bundle", "install", f"--file={brewfile}"],
+        BrewInstallParser(total_packages=len(packages)),
+    ):
+        yield update
+    yield ProgressUpdate(percent=100, step=2, total_steps=2, message=f"{slug} activated")
+
+
+async def deactivate_bundle_steps(
+    slug: str,
+    preview: DeactivationPreview | None = None,
+) -> AsyncGenerator[ProgressUpdate]:
+    """Safely deactivate a bundle and stream progress updates for OperationModal."""
+    if preview is None:
+        preview = await preview_bundle_deactivation(slug)
+    total = max(len(preview.removable_packages), 1)
+
+    if not preview.removable_packages:
+        yield ProgressUpdate(
+            percent=100,
+            step=1,
+            total_steps=1,
+            message="No unique packages to remove",
+        )
+        return
+
+    failures: list[str] = []
+    for index, package in enumerate(preview.removable_packages, start=1):
+        percent = ((index - 1) / total) * 100
+        yield ProgressUpdate(
+            percent=percent,
+            step=index,
+            total_steps=total,
+            message=f"Removing {package}",
+        )
+        proc = await asyncio.create_subprocess_exec(
+            "brew", "uninstall", "--ignore-dependencies", package,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            output = stdout.decode(errors="replace").strip()
+            detail = f": {output}" if output else ""
+            failures.append(package)
+            yield ProgressUpdate(message=f"Failed to remove {package}{detail}")
+
+    if failures:
+        raise RuntimeError(
+            f"Failed to remove {len(failures)} package(s): {', '.join(failures)}"
+        )
+
+    yield ProgressUpdate(percent=100, step=total, total_steps=total, message=f"{slug} deactivated")
+
+
+async def activate_bundle(slug: str) -> bool:
+    """Install a bundle (brew bundle --file=...)."""
+    try:
+        async for _update in activate_bundle_steps(slug):
+            pass
+    except (FileNotFoundError, RuntimeError):
+        return False
+    return True
+
+
+async def deactivate_bundle(slug: str) -> tuple[bool, list[str]]:
+    """Deactivate a bundle by removing only packages unique to that bundle."""
+    preview = await preview_bundle_deactivation(slug)
+    try:
+        async for _update in deactivate_bundle_steps(slug, preview):
+            pass
+    except RuntimeError:
+        return False, []
+    return True, list(preview.removable_packages)
 
 
 def get_bundles_by_category(bundles: list[Bundle]) -> dict[BundleCategory, list[Bundle]]:

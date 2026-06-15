@@ -35,26 +35,49 @@ def status() -> None:
     print_status()
 
 
+
+
 @app.command()
 def update(
     check: bool = typer.Option(False, "--check", help="Check only, don't apply"),
 ) -> None:
-    """Trigger system update."""
-    import subprocess
+    """Update the entire system: OS image, Flatpaks, Brew, and containers."""
+    from rich.console import Console
 
+    from bluefinctl.core.update_runner import (
+        check_for_update,
+        get_autoupdate_containers,
+        get_image_info,
+    )
+    from bluefinctl.theme.accent import ACCENT_COLORS, get_accent_color, get_color_scheme
+
+    _scheme     = get_color_scheme()
+    _shade_idx  = 0 if _scheme == "dark" else 1
+    _accent_hex = ACCENT_COLORS[get_accent_color()][_shade_idx]
+
+    console    = Console()
+    image_info = get_image_info()
+
+    # ── --check mode ───────────────────────────────────────────────────────────
     if check:
-        result = subprocess.run(
-            ["systemctl", "is-active", "uupd.timer"],
-            capture_output=True, text=True,
-        )
-        typer.echo(f"uupd timer: {result.stdout.strip()}")
-    else:
-        typer.echo("Starting update...")
-        result = subprocess.run(
-            ["systemctl", "start", "--wait", "uupd.service"],
-        )
-        raise typer.Exit(result.returncode)
+        console.print("[dim]Checking for updates…[/dim]")
+        if check_for_update():
+            ref = image_info.ref or "unknown"
+            console.print(f"[{_accent_hex}]●[/{_accent_hex}]  Update available  ·  {ref}")
+        else:
+            console.print(f"[{_accent_hex}]✓[/{_accent_hex}]  System is up to date")
+        return
 
+    # Prime sudo credentials before the progress display starts
+    import asyncio
+    import subprocess as _sp
+    _sp.run(["sudo", "-v"], check=False)
+
+    # ── Full update ────────────────────────────────────────────────────────
+    from bluefinctl.core.update_app import run_update_cli
+
+    _has_containers = bool(get_autoupdate_containers())
+    asyncio.run(run_update_cli(accent_hex=_accent_hex, has_containers=_has_containers))
 
 @app.command()
 def devmode(
@@ -113,6 +136,51 @@ def kit(
         typer.echo("Usage: bluefinctl kit list | bluefinctl kit install <name>")
 
 
+@app.command(name="install")
+def install_package(
+    package: str = typer.Argument(
+        ..., help="Package spec: brew:<name> or flatpak:<app-id>"
+    ),
+) -> None:
+    """Install a package via brew or flatpak."""
+    import asyncio
+    import subprocess
+
+    from rich.console import Console
+
+    console = Console()
+
+    if package.startswith("brew:"):
+        name = package[len("brew:"):]
+        if not name:
+            typer.echo("Package name required after brew:", err=True)
+            raise typer.Exit(1)
+        console.print(f"[bold]Installing[/bold] {name} via Homebrew…")
+        result = subprocess.run(["brew", "install", name])
+        raise typer.Exit(result.returncode)
+
+    if package.startswith("flatpak:"):
+        app_id = package[len("flatpak:"):]
+        if not app_id:
+            typer.echo("App ID required after flatpak:", err=True)
+            raise typer.Exit(1)
+        console.print(f"[bold]Installing[/bold] {app_id} via Flatpak…")
+        from bluefinctl.core.flatpak import install_package as fp_install
+        success = asyncio.run(fp_install(app_id))
+        if success:
+            console.print(f"[green]ok[/green] Installed {app_id}")
+        else:
+            typer.echo(f"Failed to install {app_id}", err=True)
+            raise typer.Exit(1)
+
+    else:
+        typer.echo(
+            "Unknown package source. Use brew:<name> or flatpak:<app-id>",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+
 @app.command()
 def ai(
     action: str = typer.Argument("list", help="list/deploy/stop"),
@@ -124,7 +192,9 @@ def ai(
     from rich.console import Console
     from rich.table import Table
 
-    from bluefinctl.core.ai import deploy_stack as _deploy, get_stacks, stop_stack as _stop
+    from bluefinctl.core.ai import deploy_stack as _deploy
+    from bluefinctl.core.ai import get_stacks
+    from bluefinctl.core.ai import stop_stack as _stop
 
     console = Console()
 

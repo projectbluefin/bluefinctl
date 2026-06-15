@@ -1,28 +1,11 @@
 /* bluefinctl — Textual CSS Theme
  *
- * Design language:
- * - Dark background with subtle surface elevation
- * - GNOME accent color drives highlights, selections, progress
- * - Monospace system font for that "geeky but good" aesthetic
- * - Generous padding, clear visual hierarchy
+ * Design language: TUI translation of GNOME libadwaita / HIG.
+ * Colors come entirely from the active Theme object (bluefin-dark /
+ * bluefin-light) — do NOT hardcode $background, $surface, etc. here.
+ * Textual resolves them from app.theme at runtime, enabling live
+ * dark/light switching when the user changes GNOME color-scheme.
  */
-
-/* ──────────────────────────────────────────────
-   Base colors (dark mode — bluefin is always dark)
-   ────────────────────────────────────────────── */
-
-$background: #1a1a2e;
-$surface: #16213e;
-$surface-bright: #1f3460;
-$text: #e0e0e0;
-$text-muted: #8892a4;
-$border: #2a3f5f;
-$success: #4caf50;
-$warning: #ff9800;
-$error: #f44336;
-
-/* Accent is overridden at runtime from GNOME gsettings */
-$accent: #3584e4;
 
 /* ──────────────────────────────────────────────
    Global
@@ -33,58 +16,28 @@ Screen {
     color: $text;
 }
 
-Header {
-    background: $surface;
-    color: $accent;
-    text-style: bold;
-}
-
-Footer {
-    background: $surface;
-}
-
 /* ──────────────────────────────────────────────
-   Sidebar Navigation
+   ViewSwitcher Navigation (libadwaita AdwViewSwitcher)
    ────────────────────────────────────────────── */
 
-.sidebar {
-    width: 20;
-    background: $surface;
-    border-right: thick $border;
-    padding: 1 0;
-}
-
-.sidebar--item {
-    padding: 0 2;
-    height: 3;
-    content-align: left middle;
-}
-
-.sidebar--item:hover {
-    background: $surface-bright;
-}
-
-.sidebar--item.-active {
-    background: $accent 20%;
-    border-left: thick $accent;
-    text-style: bold;
-}
+/* Styles live in ViewSwitcherTab DEFAULT_CSS; nothing extra needed here. */
 
 /* ──────────────────────────────────────────────
-   Cards (info panels)
+   Legacy cards (kept for screens not yet migrated)
    ────────────────────────────────────────────── */
 
 .card {
-    border: round $border;
-    padding: 1 2;
-    margin: 1 0;
+    border: round $panel;
+    padding: 0 1;
+    margin: 0 0 1 0;
     background: $surface;
+    height: auto;
 }
 
 .card--title {
     text-style: bold;
     color: $accent;
-    margin-bottom: 1;
+    padding: 0 1;
 }
 
 /* ──────────────────────────────────────────────
@@ -128,7 +81,7 @@ DataTable {
 }
 
 DataTable > .datatable--header {
-    background: $surface-bright;
+    background: $panel;
     text-style: bold;
     color: $accent;
 }
@@ -142,19 +95,27 @@ DataTable > .datatable--cursor {
    ────────────────────────────────────────────── */
 
 Button {
-    background: $surface-bright;
-    border: tall $border;
+    background: $panel;
 }
 
 Button:hover {
-    background: $accent 30%;
-    border: tall $accent;
+    background: $panel;
 }
 
 Button.-primary {
     background: $accent;
-    color: $background;
-    text-style: bold;
+}
+
+Button.-warning {
+    background: $warning;
+}
+
+Button.-error {
+    background: $error;
+}
+
+Button.-success {
+    background: $success;
 }
 
 /* ──────────────────────────────────────────────
@@ -189,7 +150,7 @@ Button.-primary {
    ────────────────────────────────────────────── */
 
 Toast {
-    background: $surface-bright;
+    background: $panel;
     border: round $accent;
 }
 
@@ -225,8 +186,9 @@ ListItem.--highlight { background: $accent 20%; }
    RadioSet / RadioButton (updates strategy)
    ────────────────────────────────────────────── */
 
-RadioSet { background: transparent; border: none; height: auto; }
-RadioButton { background: transparent; padding: 0 1; }
+RadioSet { background: transparent; border: none; height: auto; padding: 0; }
+RadioButton { background: transparent; height: 1; }
+RadioButton:hover { background: $panel; }
 RadioButton:focus { background: $panel; }
 RadioButton.-on .toggle--button { color: $accent; }
 
@@ -235,7 +197,7 @@ RadioButton.-on .toggle--button { color: $accent; }
    ────────────────────────────────────────────── */
 
 Switch.-on .switch--slider { color: $accent; }
-Switch:focus { border: tall $accent; }
+Switch:focus { outline: none; }
 
 /* ──────────────────────────────────────────────
    Input (package search, add package modal)
@@ -296,4 +258,15 @@ LogView {
     background: $background;
     border: round $panel;
     margin: 1 0;
+}
+
+/* ──────────────────────────────────────────────
+   ADW Preferences Screen content area
+   ────────────────────────────────────────────── */
+
+#adw-content {
+    width: 1fr;
+    height: 1fr;
+    overflow: hidden auto;
+    padding: 0 1;
 }

@@ -1,10 +1,10 @@
 [project]
 name = "bluefinctl"
-version = "0.1.0"
+version = "0.2.0"
 description = "TUI control panel for Bluefin OS"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "Project Bluefin", email = "info@projectbluefin.io" },
 ]
@@ -39,6 +39,7 @@ ai = [
 
 [project.scripts]
 bluefinctl = "bluefinctl.cli:app"
+bctl = "bluefinctl.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -48,14 +49,18 @@ build-backend = "hatchling.build"
 packages = ["src/bluefinctl"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "S", "B", "A", "COM", "C4", "ICN", "PIE", "PT", "RSE", "RET", "SIM", "TID", "ARG", "ERA"]
+ignore = ["S607", "S603", "COM812", "SIM117", "A002", "S110", "SIM105"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = true
 
 [tool.pytest.ini_options]

@@ -6,7 +6,7 @@ default:
 
 # Run the TUI in a terminal
 run:
-    python3 -m bluefinctl
+    pip3 install -e . -q && bctl
 
 # Run with hot-reload CSS (development mode)
 dev:
@@ -34,6 +34,14 @@ install:
 # Run the headless CLI status command
 status:
     python3 -m bluefinctl status
+
+# Run the headless update command
+update:
+    pip3 install -e . -q && python3 -m bluefinctl update
+
+# Check for updates without applying
+update-check:
+    pip3 install -e . -q && python3 -m bluefinctl update --check
 
 # Launch in Ghostty terminal (detached)
 ghostty:

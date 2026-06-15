@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build wheel + sdist
+        run: python -m build
+
+      - name: Compute sdist SHA256
+        id: sha
+        run: |
+          FILE=$(ls dist/*.tar.gz)
+          echo "sha256=$(sha256sum $FILE | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "filename=$(basename $FILE)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+      - name: Update Homebrew formula SHA256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+          FILENAME: ${{ steps.sha.outputs.filename }}
+        run: |
+          VERSION="${TAG#v}"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${FILENAME}"
+          sed -i \
+            -e "s|url \".*\"|url \"${URL}\"|" \
+            -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
+            -e "s|version \".*\"|version \"${VERSION}\"|" \
+            Formula/bluefinctl.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/bluefinctl.rb
+          git commit -m "chore(tap): update formula to ${TAG}" || echo "no changes"
+          git push origin HEAD:main

@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 # Brewfile locations
 SYSTEM_BREWFILES = Path("/usr/share/ublue-os/homebrew")
@@ -14,7 +15,7 @@ USER_BREWFILE = Path.home() / ".config" / "bluefin" / "Brewfile"
 USER_DISABLED = Path.home() / ".config" / "bluefin" / "disabled.list"
 
 
-class PackageSource(str, Enum):
+class PackageSource(StrEnum):
     """Where a package declaration comes from."""
 
     SYSTEM = "system"   # Shipped in image (read-only)
@@ -22,7 +23,7 @@ class PackageSource(str, Enum):
     DISABLED = "disabled"  # User removed from system set
 
 
-class PackageType(str, Enum):
+class PackageType(StrEnum):
     """Brew package type."""
 
     FORMULA = "brew"
@@ -70,7 +71,7 @@ class BrewState:
 
 def _parse_brewfile(path: Path) -> list[Package]:
     """Parse a Brewfile into package entries."""
-    packages = []
+    packages: list[Package] = []
     if not path.exists():
         return packages
 
@@ -108,7 +109,7 @@ def _read_disabled_list() -> set[str]:
 
 async def get_brew_state() -> BrewState:
     """Build the complete layered Brewfile state."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # Parse system Brewfiles
     system_packages: list[Package] = []
@@ -199,7 +200,7 @@ async def remove_package(name: str) -> bool:
         # Remove from user Brewfile
         if USER_BREWFILE.exists():
             lines = USER_BREWFILE.read_text().splitlines()
-            lines = [l for l in lines if f'"{name}"' not in l]
+            lines = [ln for ln in lines if f'"{name}"' not in ln]
             USER_BREWFILE.write_text("\n".join(lines) + "\n")
 
     # Uninstall
@@ -269,12 +270,60 @@ def brew_action(action: str, package: str | None = None) -> None:
                 console.print(result.stdout)
 
         case _:
-            console.print("[red]Usage: bluefinctl brew <list|add|remove|upgrade|search> [package][/red]")
+            console.print(
+                "[red]Usage: bluefinctl brew <list|add|remove|upgrade|search> [package][/red]"
+            )
 
 
-async def _stream_output(proc: asyncio.subprocess.Process, console) -> None:
+async def _stream_output(proc: asyncio.subprocess.Process, console: Any) -> None:
     """Stream subprocess output to console."""
     if proc.stdout:
         async for line in proc.stdout:
             console.print(line.decode().rstrip())
     await proc.wait()
+
+
+# ─── Package Search ──────────────────────────────────────────
+
+
+@dataclass
+class SearchResult:
+    """A package found via brew search."""
+
+    name: str
+    type: PackageType
+    description: str = ""
+
+
+async def search_packages(query: str) -> list[SearchResult]:
+    """Search brew for packages matching query."""
+    if not query or len(query) < 2:
+        return []
+
+    proc = await asyncio.create_subprocess_exec(
+        "brew", "search", query,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0 or not stdout:
+        return []
+
+    results: list[SearchResult] = []
+    current_type = PackageType.FORMULA
+    for line in stdout.decode().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("==> Formulae"):
+            current_type = PackageType.FORMULA
+            continue
+        if line.startswith("==> Casks"):
+            current_type = PackageType.CASK
+            continue
+        if line.startswith("==>"):
+            continue
+        # Each line is a package name
+        results.append(SearchResult(name=line, type=current_type))
+
+    return results[:30]  # Cap results

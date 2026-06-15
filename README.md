@@ -1,75 +1,190 @@
 # bluefinctl
 
-> TUI control panel for Bluefin OS — manage packages, updates, containers, and developer mode from one keyboard-driven dashboard.
+> Keyboard-driven TUI control panel for [Bluefin OS](https://projectbluefin.io) --
+> system identity, updates, developer tooling, and AI workstation management,
+> all from one beautiful terminal dashboard.
 
-Built on [Textual](https://textual.textualize.io/). Replaces scattered `ujust` + `gum` interactions with a persistent, themed interface that matches your GNOME accent color.
+Built on [Textual](https://textual.textualize.io/). Matches your GNOME accent color live.
 
-![bluefinctl](docs/screenshot-placeholder.png)
+![CI](https://github.com/projectbluefin/bluefinctl/actions/workflows/ci.yml/badge.svg)
+
+---
 
 ## Install
 
+### Recommended -- pipx (stays isolated, auto-updates with `pipx upgrade bluefinctl`)
+
 ```bash
-brew install ublue-os/tap/bluefinctl
+pipx install bluefinctl
 ```
+
+### Homebrew tap
+
+```bash
+brew tap projectbluefin/bluefinctl
+brew install bluefinctl
+```
+
+#### Trust (if you have `HOMEBREW_REQUIRE_TAP_TRUST` set)
+
+Homebrew 4.x introduced opt-in tap trust enforcement. If you have
+`HOMEBREW_REQUIRE_TAP_TRUST=1` in your environment, Homebrew will refuse to load
+formulae from untrusted third-party taps until you explicitly trust them:
+
+```bash
+brew trust --tap projectbluefin/bluefinctl
+brew install bluefinctl
+```
+
+**What the formula installs:**
+The formula uses Homebrew's `Language::Python::Virtualenv` helper -- it builds an
+isolated Python 3.13 virtualenv under `$(brew --prefix)/opt/bluefinctl`, installs
+`bluefinctl` and its dependencies (`textual`, `typer`, `rich`) into that virtualenv,
+and symlinks `bctl` and `bluefinctl` into `$(brew --prefix)/bin`. No pre/post-install
+hooks, no elevated-privilege scripts.
+
+You can read the formula at
+[`Formula/bluefinctl.rb`](https://github.com/projectbluefin/bluefinctl/blob/main/Formula/bluefinctl.rb)
+before tapping.
+
+### From source
+
+```bash
+git clone https://github.com/projectbluefin/bluefinctl
+cd bluefinctl
+pip install -e .
+```
+
+> **Requirements:** Python >= 3.13, Linux, a bootc-managed system (Bluefin, Aurora, uCore...).
+> The TUI runs anywhere; most core actions need a running Bluefin system.
+
+---
 
 ## Usage
 
 ```bash
-bluefinctl              # Launch full TUI dashboard
-bluefinctl brew         # Package management
-bluefinctl update       # Trigger system update
-bluefinctl status       # System status (scriptable, no TUI)
-bluefinctl devmode      # Toggle developer mode
+bctl                          # Launch TUI  (bctl is an alias for bluefinctl)
+bctl --screen updates         # Jump to a screen on launch
+
+# Headless subcommands -- scriptable, no TUI required
+bctl status                   # Print system info
+bctl update                   # Full system update: OS, Flatpak, Brew, Containers
+bctl update --check           # Check for available updates, exit 0/1
+bctl devmode on|off|status    # Toggle developer mode
 ```
+
+---
+
+## Screens
+
+Navigate with the tab bar at the top (libadwaita AdwViewSwitcher style) or number keys **1-3**.
+
+| # | Screen | What it does |
+|---|--------|-------------|
+| 1 | **System** | Image identity, GPU, health, rollback calendar, quick actions |
+| 2 | **Updates** | Strategy, focus mode, channel switch, rollback, staged-update banner |
+| 3 | **Developer** | Cloud-native tools, editors, containers, virtualization |
+
+---
+
+## `bctl update` -- the geek-fest updater
+
+Replaces `ujust update` with a beautiful terminal ceremony:
+
+```
+  ok  System Image    [====================]  19/19  3.2 GB  staged -- reboot when ready  0:05:43
+  ok  Flatpak         [====================]   4/4   4 apps updated                       0:00:23
+  ok  Homebrew        [====================]   1/1   2 formulae upgraded                  0:01:12
+  ok  Containers      [====================]   1/1   already up to date                   0:00:03
+```
+
+- **bootc `--progress-fd`** -- machine-readable JSON layer progress: layer count and bytes transferred across all pulled layers
+- **Parallel second phase** -- Flatpak, Brew, and Containers run concurrently after the OS image; each row resolves independently
+- **Rich Progress bars** -- each task row updates in-place via cursor-up; no scroll, no mess, correct width on any terminal
+- **OSC 9;4** -- progress bar in your terminal tab (Ghostty, Ptyxis, iTerm2, WezTerm)
+- **OSC title** -- tab title tracks the current stage
+
+---
 
 ## Features
 
-- **📦 Brew Management** — Layered Brewfile system (system + user), search, add/remove, bulk upgrade with progress
-- **🔄 Update Control** — Strategy selector (auto/notify/manual/scheduled), per-layer toggles, Focus Mode for uninterrupted work
-- **🐳 Container Status** — Podman pod health, running containers, quick actions
-- **🛠️ Developer Mode** — One-toggle devmode with clear status indicator
-- **🎨 GNOME Theming** — Reads your accent color, applies it live across the entire UI
-- **📊 System Health** — GPU status, deployment info, post-update health checks
-- **⌨️ Keyboard-First** — Vim-style navigation, command palette (Ctrl+P), quick actions
+| Feature | Details |
+|---------|---------|
+| **GNOME Theming** | Reads accent color + color-scheme, applies live across the UI |
+| **Unified Progress** | Every subprocess streams behind the same OpsBar with spinner + bar |
+| **Focus Mode** | Pause updates for 1h / tonight / tomorrow / indefinitely |
+| **Channel Switch** | stable to testing with confirmation; rollback calendar |
+| **OSC integration** | Progress in terminal tab, title tracks current operation |
+| **Headless CLI** | Every TUI action has a `bctl <subcommand>` scriptable path |
+| **Agentic-ready** | AGENTS.md + skill files designed for AI-driven development |
+
+---
 
 ## Architecture
 
 ```
-bluefinctl reads/writes to:
-├── uupd (update daemon)         — /etc/uupd/config.json + systemd timers
-├── bootc (image updates)        — bootc status/switch/rollback
-├── Homebrew (packages)          — Brewfile layers + brew bundle
-├── Podman (containers)          — pod/container status + lifecycle
-└── GNOME (theming)              — gsettings accent-color
+src/bluefinctl/
+├── app.py               Textual App -- screens, theme, keybinds
+├── cli.py               Typer CLI -- headless path for every operation
+├── core/                Business logic -- NO Textual imports, fully testable
+│   ├── updates.py       bootc status, strategy, focus mode, reboot
+│   ├── update_runner.py bctl update orchestration (bootc + parallel stages)
+│   ├── update_app.py    Rich Progress CLI renderer for bctl update
+│   ├── devmode.py       developer tooling, Lima, group management
+│   ├── brew.py          Brewfile management
+│   ├── flatpak.py       Flatpak search/install
+│   └── ai.py            GPU-accelerated stack management
+├── screens/             One Screen per panel (system, updates, devmode, ai)
+├── widgets/             adw.py (HIG library), ops_bar.py, rollback_calendar.py
+├── theme/               GNOME accent color reader + bluefin.tcss
+└── util/                OSC escape sequences, Ghostty detection
 ```
 
-No RPMs. No layered packages. Everything runs in userspace via Homebrew or containers.
+**Strict separation:** all subprocess calls, file I/O, and system state live in `core/`.
+Screens only call core functions and render results. Every action has both a CLI and TUI path.
+
+---
 
 ## Development
 
 ```bash
-# Clone and setup
 git clone https://github.com/projectbluefin/bluefinctl
 cd bluefinctl
 pip install -e ".[dev]"
 
-# Run in dev mode (hot-reload CSS)
-textual run --dev src/bluefinctl/app.py
-
-# Run tests
-pytest
-
-# Lint
+just run          # reinstalls editable + launches bctl
+just dev          # hot-reload CSS (textual run --dev)
+pytest            # full test suite
 ruff check src/ tests/
 mypy src/
 ```
 
-## Design
+### Contributing
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the full architecture and screen designs.
+1. Read `AGENTS.md` -- it has the full operating contract, PR rules, and human gates
+2. Pick an issue labeled `queue/agent-ready`
+3. Branch from `main`, use [Conventional Commits](https://www.conventionalcommits.org/)
+4. `pytest && ruff check src/ tests/ && mypy src/` must pass before requesting review
+5. One PR per feature. No WIP PRs.
 
-See [docs/UPDATES.md](docs/UPDATES.md) for the update management deep-dive.
+### Maintainers
+
+See [AGENTS.md](AGENTS.md) for the full agent and human operating contract.
+PRs require review from [@projectbluefin/maintainers](https://github.com/orgs/projectbluefin/teams/maintainers).
+
+---
+
+## Docs
+
+| File | Contents |
+|------|---------|
+| [AGENTS.md](AGENTS.md) | Full agent/copilot operating contract, PR rules, and human gates |
+| [docs/DESIGN.md](docs/DESIGN.md) | Architecture and screen design decisions |
+| [docs/UPDATES.md](docs/UPDATES.md) | Update management internals |
+| [docs/skills/](docs/skills/) | Per-area skill files for AI-driven development |
+
+---
 
 ## License
 
-MIT
+[MIT](LICENSE)

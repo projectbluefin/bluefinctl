@@ -1,117 +1,141 @@
-"""System screen — identity, hardware, health, running services, quick actions.
-
-This is the home screen (bootc systems only). Card-based layout showing:
-- Identity (full OCI ref, boot status, hostname)
-- Hardware (GPU + VRAM, CPU, RAM)
-- Health (GPU driver, systemd, Homebrew status)
-- Running Services (pod count, podman-tui launch)
-- Active Kits (summary of installed kits)
-- Quick Actions (update, devmode, report)
-"""
+"""System screen — identity, hardware, health, release stream, quick actions."""
 
 from __future__ import annotations
 
 import asyncio
 
+from textual import on, work
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Label, Static
+from textual.widgets import Button
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.core.notify import system_notify
+from bluefinctl.screens._viewswitcher import ViewSwitcher
+from bluefinctl.widgets.adw import (
+    AdwButtonRow,
+    AdwButtonsRow,
+    AdwPreferencesGroup,
+    AdwPropertyRow,
+    AdwSwitchRow,
+)
+from bluefinctl.widgets.ops_bar import OpsBar
+from bluefinctl.widgets.rollback_calendar import RollbackCalendar
 
 
-class IdentityCard(Static):
-    """System identity — full OCI image ref, boot status."""
+class SystemScreen(Screen[None]):
+    """System overview — the home screen for bootc systems."""
+
+    BINDINGS = [
+        ("u", "update_all", "Update"),
+    ]
 
     DEFAULT_CSS = """
-    IdentityCard { height: auto; }
+    SystemScreen { layout: vertical; overflow: hidden hidden; }
+    .adw-cols { height: auto; }
+    .adw-col  { width: 1fr; height: auto; padding: 0 2; }
+    #adw-content { height: 1fr; }
     """
 
     def compose(self) -> ComposeResult:
-        yield Label("Identity", classes="card--title")
-        yield Label("Loading...", id="identity-info")
+        yield ViewSwitcher("system")
+        with ScrollableContainer(id="adw-content"):
+            with Horizontal(classes="adw-cols"):
+                # ── left column — image identity, hardware, health ────────────
+                with Vertical(classes="adw-col"):
+                    yield AdwPreferencesGroup(
+                        "Image",
+                        AdwPropertyRow("Image",   "Loading…", id="sys-image"),
+                        AdwPropertyRow("Channel", "Loading…", id="sys-channel"),
+                        AdwPropertyRow("Status",  "Loading…", id="sys-boot"),
+                    )
+                    yield AdwPreferencesGroup(
+                        "System",
+                        AdwPropertyRow("Hostname", "Loading…",   id="sys-hostname"),
+                        AdwPropertyRow("GPU",      "Detecting…", id="sys-gpu"),
+                    )
+                    yield AdwPreferencesGroup(
+                        "Health",
+                        AdwPropertyRow("GPU Driver",      "Checking…", id="health-gpu"),
+                        AdwPropertyRow("System Services", "Checking…", id="health-system"),
+                        AdwPropertyRow("Homebrew",        "Checking…", id="health-brew"),
+                    )
+
+                # ── right column — updates, beta, rollback ────────────────────
+                with Vertical(classes="adw-col"):
+                    yield AdwPreferencesGroup(
+                        "Updates",
+                        AdwButtonsRow(
+                            Button("Update All", variant="primary", id="btn-update-all"),
+                        ),
+                        AdwSwitchRow(
+                            "Testing Stream",
+                            subtitle="Switch to the testing image tag — reboot to apply",
+                            id="channel-testing-switch",
+                        ),
+                    )
+                    yield AdwPreferencesGroup(
+                        "Rollback",
+                        AdwButtonRow(
+                            "Roll Back to Previous Build",
+                            variant="destructive",
+                            id="btn-rollback",
+                        ),
+                        RollbackCalendar(id="rollback-calendar"),
+                    )
+        yield OpsBar()
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load_identity(), exclusive=False)
+        self.run_worker(self._load_health(),   exclusive=False)
+        self.run_worker(self._load_update_status(), exclusive=False)
 
-    async def _load(self) -> None:
+    # ─────────────────────────────────────────────────────────────────────────
+    # Data loading
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _load_identity(self) -> None:
         from bluefinctl.core.system import get_system_info
-
         info = await get_system_info()
-        full_ref = f"ghcr.io/projectbluefin/{info.image_name}:{info.image_tag}"
-        self.query_one("#identity-info", Label).update(
-            f"  Image:    {full_ref}\n"
-            f"  Boot:     {info.boot_status}\n"
-            f"  Hostname: {info.hostname or 'unknown'}",
-        )
+        self.query_one("#sys-image",    AdwPropertyRow).update_value(info.full_clean_ref)
+        self.query_one("#sys-boot",     AdwPropertyRow).update_value(info.boot_status)
+        self.query_one("#sys-hostname", AdwPropertyRow).update_value(info.hostname)
 
+        tag = (info.image_tag or "").lower()
+        channel = "testing ⚗" if "testing" in tag else "stable"
+        self.query_one("#sys-channel", AdwPropertyRow).update_value(channel)
 
-class HardwareCard(Static):
-    """Hardware summary — GPU with VRAM, mode."""
-
-    DEFAULT_CSS = """
-    HardwareCard { height: auto; }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Label("Hardware", classes="card--title")
-        yield Label("Loading...", id="hardware-info")
-
-    def on_mount(self) -> None:
-        self.run_worker(self._load())
-
-    async def _load(self) -> None:
-        from bluefinctl.core.system import get_system_info
-
-        info = await get_system_info()
-        gpu_line = f"{info.gpu.vendor.upper()} {info.gpu.model}"
+        gpu_line = f"{info.gpu.vendor.upper()} {info.gpu.model}".strip()
         if info.gpu.vram_mb:
-            gpu_line += f" ({info.gpu.vram_mb // 1024} GB VRAM)"
+            gpu_line += f"  ·  {info.gpu.vram_mb // 1024} GB VRAM"
+        self.query_one("#sys-gpu", AdwPropertyRow).update_value(gpu_line)
 
-        self.query_one("#hardware-info", Label).update(
-            f"  GPU:  {gpu_line}\n"
-            f"  Mode: {'Developer' if info.devmode else 'Standard'}",
-        )
+        # Release Stream toggle reflects actual channel
+        self.query_one("#channel-testing-switch", AdwSwitchRow).set_value("testing" in tag)
 
+        # Rollback calendar
+        import contextlib
+        with contextlib.suppress(Exception):
+            cal = self.query_one(RollbackCalendar)
+            if info.image_ref:
+                cal.configure(info.clean_image_ref, info.image_tag or "latest")
 
-class HealthCard(Static):
-    """System health checks — GPU driver, systemd, Homebrew."""
-
-    DEFAULT_CSS = """
-    HealthCard { height: auto; }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Label("Health", classes="card--title")
-        yield Label("Loading...", id="health-info")
-
-    def on_mount(self) -> None:
-        self.run_worker(self._load())
-
-    async def _load(self) -> None:
-        checks: list[str] = []
-
+    async def _load_health(self) -> None:
         # GPU driver
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "nvidia-smi",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.communicate()
-            checks.append("[ok] GPU driver" if proc.returncode == 0 else "[X] GPU driver")
-        except FileNotFoundError:
+        gpu_status = "— no discrete GPU"
+        for cmd in ("nvidia-smi", "rocm-smi"):
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "rocm-smi",
+                    cmd,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
                 await proc.communicate()
-                checks.append("[ok] GPU driver" if proc.returncode == 0 else "[X] GPU driver")
+                gpu_status = "✓ ok" if proc.returncode == 0 else "✗ failed"
+                break
             except FileNotFoundError:
-                checks.append("[--] GPU (no discrete GPU)")
+                continue
+        self.query_one("#health-gpu", AdwPropertyRow).update_value(gpu_status)
 
         # systemd
         try:
@@ -122,14 +146,14 @@ class HealthCard(Static):
             )
             stdout, _ = await proc.communicate()
             status = stdout.decode().strip()
-            if status == "running":
-                checks.append("[ok] System services")
-            elif status == "degraded":
-                checks.append("[!] System services (degraded)")
-            else:
-                checks.append(f"[X] System services ({status})")
+            sys_status = (
+                "✓ running" if status == "running" else
+                "⚠ degraded" if status == "degraded" else
+                f"✗ {status}"
+            )
         except FileNotFoundError:
-            checks.append("[--] systemd unavailable")
+            sys_status = "— unavailable"
+        self.query_one("#health-system", AdwPropertyRow).update_value(sys_status)
 
         # Homebrew
         try:
@@ -139,171 +163,165 @@ class HealthCard(Static):
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
-            checks.append("[ok] Homebrew" if proc.returncode == 0 else "[X] Homebrew")
+            brew_status = "✓ ok" if proc.returncode == 0 else "✗ not found"
         except FileNotFoundError:
-            checks.append("[X] Homebrew not found")
-
-        self.query_one("#health-info", Label).update(
-            "  " + "  ".join(checks),
-        )
+            brew_status = "✗ not installed"
+        self.query_one("#health-brew", AdwPropertyRow).update_value(brew_status)
 
 
-class RunningServicesCard(Static):
-    """Running pods/containers summary."""
+    async def _load_update_status(self) -> None:
+        """Show last update check result in the OpsBar."""
+        import contextlib
+        ops = self.query_one(OpsBar)
+        with contextlib.suppress(Exception):
+            from bluefinctl.core.updates import get_update_status
+            status = await get_update_status()
+            if status.focus_mode and status.focus_mode.active:
+                ops.set_idle("⏸  Updates paused — focus mode active")
+            elif status.brew_updates > 0:
+                ops.set_idle(f"↑  {status.brew_updates} Homebrew package(s) available")
+            else:
+                ops.set_idle("✓  System up to date")
+            return
+        ops.set_idle("Ready")
 
-    DEFAULT_CSS = """
-    RunningServicesCard { height: auto; }
-    """
+    # ─────────────────────────────────────────────────────────────────────────
+    # Event handlers
+    # ─────────────────────────────────────────────────────────────────────────
 
-    def compose(self) -> ComposeResult:
-        yield Label("Running Services", classes="card--title")
-        yield Label("Loading...", id="services-info")
+    @on(Button.Pressed, "#btn-update-all")
+    def _on_update_all(self) -> None:
+        self._do_update_all()
 
-    def on_mount(self) -> None:
-        self.run_worker(self._load())
+    @on(Button.Pressed, "#btn-op-confirm")
+    def _on_op_confirm(self) -> None:
+        op = self.query_one(OpsBar).pending_op or ""
+        if op == "rollback":
+            self._exec_rollback(None)
+        elif op.startswith("rollback:"):
+            self._exec_rollback(op.split(":", 1)[1])
 
-    async def _load(self) -> None:
+    @on(Button.Pressed, "#btn-op-cancel")
+    def _on_op_cancel(self) -> None:
+        self.query_one(OpsBar).set_idle("Ready")
+
+    @on(AdwButtonRow.Pressed)
+    def _on_rollback_row(self, event: AdwButtonRow.Pressed) -> None:
+        if event.row.id == "btn-rollback":
+            self._do_rollback()
+
+    def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
+        if event.row.id == "channel-testing-switch":
+            self._switch_channel("testing" if event.value else "stable")
+
+    def on_rollback_calendar_date_selected(
+        self, event: RollbackCalendar.DateSelected
+    ) -> None:
+        self._rollback_to(event.image_ref, label=str(event.date))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Operations (all inline — no OperationModal)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @work(exclusive=True)
+    async def _do_update_all(self) -> None:
+        import shutil
+        ops = self.query_one(OpsBar)
+        if not shutil.which("uupd"):
+            ops.set_idle("✗  uupd not found")
+            return
+        ops.set_running("Updating system…")
         try:
             proc = await asyncio.create_subprocess_exec(
-                "podman", "pod", "ls", "--format", "{{.Name}}",
-                stdout=asyncio.subprocess.PIPE,
+                "pkexec", "/usr/bin/uupd",
+                stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await proc.communicate()
-            pods = [p for p in stdout.decode().strip().split("\n") if p]
-            if pods:
-                self.query_one("#services-info", Label).update(
-                    f"  {len(pods)} pod(s) active\n"
-                    f"  [c] Launch podman-tui for details",
-                )
+            await proc.wait()
+            if proc.returncode == 0:
+                ops.set_idle("✓  Update complete")
             else:
-                self.query_one("#services-info", Label).update(
-                    "  No pods running\n"
-                    "  [c] Launch podman-tui",
-                )
-        except FileNotFoundError:
-            self.query_one("#services-info", Label).update(
-                "  podman not found",
-            )
+                ops.set_idle(f"✗  Update failed (exit {proc.returncode})")
+        except Exception as e:  # noqa: BLE001
+            ops.set_idle(f"✗  {e}")
 
-
-class ActiveKitsCard(Static):
-    """Summary of active kits."""
-
-    DEFAULT_CSS = """
-    ActiveKitsCard { height: auto; }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Label("Active Kits", classes="card--title")
-        yield Label("Loading...", id="kits-summary")
-
-    def on_mount(self) -> None:
-        self.run_worker(self._load())
-
-    async def _load(self) -> None:
-        from bluefinctl.core.bundles import BundleState, get_bundles
-
+    @work(exclusive=True)
+    async def _switch_channel(self, channel: str) -> None:
+        ops = self.query_one(OpsBar)
+        ops.set_running(f"Switching to {channel}…")
         try:
-            bundles = await get_bundles()
-            active = [b for b in bundles if b.state in (BundleState.BASE, BundleState.ACTIVE)]
-            available = [b for b in bundles if b.state == BundleState.AVAILABLE]
-
-            if active:
-                names = ", ".join(b.name for b in active[:5])
-                suffix = f" +{len(active) - 5} more" if len(active) > 5 else ""
-                self.query_one("#kits-summary", Label).update(
-                    f"  {names}{suffix}\n"
-                    f"  {len(active)} active / {len(available)} available",
-                )
-            else:
-                self.query_one("#kits-summary", Label).update(
-                    "  No kits active — press [3] for Toolkit",
-                )
-        except Exception:
-            self.query_one("#kits-summary", Label).update(
-                "  Could not load kit status",
+            from bluefinctl.core.system import get_system_info
+            info   = await get_system_info()
+            base   = info.clean_image_ref  # e.g. ghcr.io/projectbluefin/dakota
+            if not base:
+                raise RuntimeError("Cannot determine current image ref")
+            target = f"{base}:{'testing' if channel == 'testing' else 'latest'}"
+            proc   = await asyncio.create_subprocess_exec(
+                "pkexec", "bootc", "switch", target,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
+            await proc.wait()
+            if proc.returncode == 0:
+                ops.set_idle(f"✓  Switched to {channel} — reboot to apply")
+                return
+            raise RuntimeError(f"bootc switch exited {proc.returncode}")
+        except Exception as e:  # noqa: BLE001
+            ops.set_idle(f"✗  {e}")
+            # Revert toggle to actual state
+            self.run_worker(self._load_identity())
 
+    @work(exclusive=True)
+    async def _do_rollback(self) -> None:
+        ops = self.query_one(OpsBar)
+        ops.set_confirm("Roll back to previous build?", "rollback")
 
-class QuickActionsCard(Static):
-    """Quick action shortcuts shown as a card."""
+    @work(exclusive=True)
+    async def _rollback_to(self, image_ref: str, label: str = "") -> None:
+        ops = self.query_one(OpsBar)
+        what = label or image_ref
+        ops.set_confirm(f"Roll back to {what}?", f"rollback:{image_ref}")
 
-    DEFAULT_CSS = """
-    QuickActionsCard { height: auto; }
-    """
+    @work(exclusive=True)
+    async def _exec_rollback(self, image_ref: str | None) -> None:
+        ops = self.query_one(OpsBar)
+        ops.set_running("Rolling back…")
+        try:
+            if image_ref:
+                cmd = ["pkexec", "bootc", "switch", image_ref]
+            else:
+                cmd = ["pkexec", "bootc", "rollback"]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+            if proc.returncode == 0:
+                ops.set_idle("✓  Rollback staged — reboot to apply")
+            else:
+                ops.set_idle(f"✗  Rollback failed (exit {proc.returncode})")
+        except Exception as e:  # noqa: BLE001
+            ops.set_idle(f"✗  {e}")
 
-    def compose(self) -> ComposeResult:
-        yield Label("Quick Actions", classes="card--title")
-        yield Label(
-            "  [u] Update All    [d] Devmode    [r] System Report    [c] podman-tui",
-        )
-
-
-class SystemScreen(Screen[None]):
-    """System overview — the home screen for bootc systems."""
-
-    BINDINGS = [
-        ("u", "update_all", "Update"),
-        ("d", "toggle_devmode", "Devmode"),
-        ("r", "system_report", "Report"),
-        ("c", "launch_podman_tui", "podman-tui"),
-    ]
-
-    def compose(self) -> ComposeResult:
-        with Horizontal():
-            yield Sidebar("system")
-            with Vertical(id="main-content"):
-                with Container(classes="card"):
-                    yield IdentityCard()
-                with Container(classes="card"):
-                    yield HardwareCard()
-                with Container(classes="card"):
-                    yield HealthCard()
-                with Container(classes="card"):
-                    yield RunningServicesCard()
-                with Container(classes="card"):
-                    yield ActiveKitsCard()
-                with Container(classes="card"):
-                    yield QuickActionsCard()
+    # ─────────────────────────────────────────────────────────────────────────
+    # Keybinding actions
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def action_update_all(self) -> None:
-        """Trigger system update via unified progress modal."""
-        import shutil
+        self._do_update_all()
 
-        from bluefinctl.core.progress import IndeterminateParser
-        from bluefinctl.widgets.operation_modal import OperationModal
-
-        if shutil.which("uupd"):
-            rc = await self.app.push_screen_wait(
-                OperationModal(
-                    "Update All",
-                    command=["pkexec", "uupd", "update", "--all"],
-                    parser=IndeterminateParser(),
-                ),
-            )
-            if rc == 0:
-                self.notify("Update complete", title="Updates")
-            else:
-                self.notify("Update failed", severity="error", title="Updates")
-        else:
-            self.notify("uupd not found", severity="warning", title="Updates")
-
+    @work
     async def action_toggle_devmode(self) -> None:
-        """Toggle developer mode (add/remove groups)."""
         import os
 
         from bluefinctl.core.devmode import _check_devmode_active
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
-
-        state = _check_devmode_active()
+        state    = _check_devmode_active()
         username = os.environ.get("USER", "")
         if state.active:
             confirmed = await self.app.push_screen_wait(
-                ConfirmModal(
-                    "Disable Developer Mode",
-                    f"Remove docker/mock/lxd groups from {username}?",
-                ),
+                ConfirmModal("Disable Developer Mode", f"Remove groups from {username}?")
             )
             if confirmed:
                 cmds = " && ".join([
@@ -312,16 +330,13 @@ class SystemScreen(Screen[None]):
                     f"gpasswd -d {username} lxd",
                 ])
                 rc = await self.app.push_screen_wait(
-                    OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds]),
+                    OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
                 )
                 if rc == 0:
-                    self.notify("Developer mode disabled. Log out to apply.", title="Devmode")
+                    system_notify("DevMode", "Developer mode disabled. Log out to apply.")
         else:
             confirmed = await self.app.push_screen_wait(
-                ConfirmModal(
-                    "Enable Developer Mode",
-                    "Add groups: docker, mock, lxd and install dev tools?",
-                ),
+                ConfirmModal("Enable Developer Mode", "Add groups: docker, mock, lxd?")
             )
             if confirmed:
                 cmds = " && ".join([
@@ -330,31 +345,38 @@ class SystemScreen(Screen[None]):
                     f"usermod -aG lxd {username} 2>/dev/null || true",
                 ])
                 rc = await self.app.push_screen_wait(
-                    OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds]),
+                    OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
                 )
                 if rc == 0:
-                    self.notify("Developer mode enabled. Log out to apply.", title="Devmode")
+                    system_notify("DevMode", "Developer mode enabled. Log out to apply.")
 
+    @work(exclusive=True)
     async def action_system_report(self) -> None:
-        """Generate system report via ujust."""
         import shutil
-
-        from bluefinctl.screens._modals import OperationLogModal
-
-        if shutil.which("ujust"):
-            await self.app.push_screen_wait(
-                OperationLogModal("System Report", ["ujust", "report"]),
+        ops = self.query_one(OpsBar)
+        if not shutil.which("ujust"):
+            ops.set_idle("✗  ujust not found")
+            return
+        ops.set_running("Generating system report…")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ujust", "report",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-        else:
-            self.notify("ujust not found", severity="warning", title="Report")
+            await proc.wait()
+            if proc.returncode == 0:
+                ops.set_idle("✓  Report submitted")
+            else:
+                ops.set_idle(f"✗  Report failed (exit {proc.returncode})")
+        except Exception as e:  # noqa: BLE001
+            ops.set_idle(f"✗  {e}")
 
     def action_launch_podman_tui(self) -> None:
-        """Launch podman-tui in a new terminal window."""
         import shutil
 
         from bluefinctl.util.terminal import launch_in_terminal
-
         if shutil.which("podman-tui"):
             launch_in_terminal(["podman-tui"], title="podman-tui")
         else:
-            self.notify("podman-tui not installed", severity="warning", title="Containers")
+            system_notify("Containers", "podman-tui not installed", urgency="low")

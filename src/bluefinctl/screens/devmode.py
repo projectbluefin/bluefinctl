@@ -1,346 +1,340 @@
-"""DevMode screen — developer experience panel.
+"""Developer screen — feature portal for Bluefin DX tools.
 
-TabbedContent with 3 tabs:
-  Overview  — status, runtime health, quick actions
-  Tools     — developer tool list with install status
-  Environments — Podman, Distrobox, Lima
+Design:
+  Single scrollable screen. Developer mode toggle at top (reboot required).
+  Each tool section is an AdwPreferencesGroup — tools install without rebooting.
+  Install/detected state shown via inline buttons on each row.
+  OpsBar shows progress for every install operation.
 """
 
 from __future__ import annotations
 
 import asyncio
 
+from textual import work
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.containers import ScrollableContainer
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Label, Static, TabbedContent, TabPane
+from textual.widgets import Button
 
-from bluefinctl.screens._sidebar import Sidebar
+from bluefinctl.core.notify import system_notify
+from bluefinctl.screens._viewswitcher import ViewSwitcher
+from bluefinctl.widgets.adw import AdwActionRow, AdwPreferencesGroup, AdwSwitchRow
+from bluefinctl.widgets.ops_bar import OpsBar
 
 
-class OverviewTab(Static):
-    """DevMode Overview — status card, runtime health, quick actions."""
+def _install_btn(tool_id: str) -> Button:
+    """Return the initial Install button for a tool row."""
+    return Button("Install", id=f"install-{tool_id}", variant="primary")
+
+
+class DevModeScreen(Screen[None]):
+    """Developer — feature portal for installing and managing DX tools."""
 
     DEFAULT_CSS = """
-    OverviewTab { height: auto; padding: 1 0; }
+    DevModeScreen { layout: vertical; overflow: hidden hidden; }
+    #adw-content  { height: 1fr; }
+    .adw-cols     { height: auto; }
+    .adw-col      { width: 1fr; height: auto; padding: 0 2; }
+    .devmode-top-group { margin: 0 2 1 2; }
+    DevModeScreen AdwActionRow { height: 2; }
+    DevModeScreen AdwActionRow > .adw-row-content > .adw-row-subtitle { overflow-x: hidden; }
     """
 
     def compose(self) -> ComposeResult:
-        with Static(classes="card"):
-            yield Label("Status", classes="card--title")
-            yield Label("  Checking...", id="devmode-status")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Runtime Health", classes="card--title")
-            yield Label("  Checking...", id="runtime-health")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Quick Actions", classes="card--title")
-            yield Label(
-                "  [c] podman-tui    [v] VSCode    [l] Lima shell",
+        yield ViewSwitcher("devmode")
+        with ScrollableContainer(id="adw-content"):
+            yield AdwPreferencesGroup(
+                "Developer Mode",
+                AdwSwitchRow(
+                    "Enable Developer Mode",
+                    subtitle="Adds you to docker, mock, lxd groups — reboot required to apply",
+                    id="devmode-switch",
+                ),
+                classes="devmode-top-group",
             )
+            with Horizontal(classes="adw-cols"):
+
+                # ── Left column: Cloud Native Development ────────────────────
+                with Vertical(classes="adw-col"):
+                    yield AdwPreferencesGroup(
+                        "Cloud Native Development",
+                        AdwActionRow(
+                            "Podman Desktop",
+                            subtitle="Podman and Podman Desktop from the CNCF.",
+                            trailing=_install_btn("podman"),
+                            id="tool-podman",
+                        ),
+                        AdwActionRow(
+                            "The Bluefin WSL Experience",
+                            subtitle=(
+                                "Persistent Ubuntu VM powered by Lima (CNCF). "
+                                "VS Code SSH wired. limactl shell ubuntu"
+                            ),
+                            trailing=_install_btn("lima"),
+                            id="tool-lima",
+                        ),
+                        AdwActionRow(
+                            "Incus",
+                            subtitle=(
+                                "System containers and VMs via Homebrew. "
+                                "Fully supported third option."
+                            ),
+                            trailing=_install_btn("incus"),
+                            id="tool-incus",
+                        ),
+                        AdwActionRow(
+                            "Docker",
+                            subtitle="Docker + compose + lazydocker + dive.",
+                            trailing=_install_btn("docker"),
+                            id="tool-docker",
+                        ),
+                    )
+                    yield AdwPreferencesGroup(
+                        "Virtualization",
+                        AdwActionRow(
+                            "Virtual Machines",
+                            subtitle="virt-manager + QEMU. Linux and Windows VMs.",
+                            trailing=_install_btn("vms"),
+                            id="tool-vms",
+                        ),
+                    )
+
+                # ── Right column: Editors + Virtualization ────────────────────
+                with Vertical(classes="adw-col"):
+                    yield AdwPreferencesGroup(
+                        "Editors",
+                        AdwActionRow(
+                            "VS Code",
+                            subtitle="The world's most popular editor, native on Linux.",
+                            trailing=_install_btn("vscode"),
+                            id="tool-vscode",
+                        ),
+                        AdwActionRow(
+                            "JetBrains Toolbox",
+                            subtitle="Manage all JetBrains IDEs from one launcher.",
+                            trailing=_install_btn("jetbrains"),
+                            id="tool-jetbrains",
+                        ),
+                        AdwActionRow(
+                            "Zed",
+                            subtitle="A high-performance editor built in Rust.",
+                            trailing=_install_btn("zed"),
+                            id="tool-zed",
+                        ),
+                        AdwActionRow(
+                            "VSCodium",
+                            subtitle="VS Code without Microsoft telemetry.",
+                            trailing=_install_btn("vscodium"),
+                            id="tool-vscodium",
+                        ),
+                        AdwActionRow(
+                            "Neovim",
+                            subtitle="Hyperextensible Vim-based text editor.",
+                            trailing=_install_btn("neovim"),
+                            id="tool-neovim",
+                        ),
+                        AdwActionRow(
+                            "Helix",
+                            subtitle="A post-modern modal editor.",
+                            trailing=_install_btn("helix"),
+                            id="tool-helix",
+                        ),
+                    )
+
+        yield OpsBar()
+
+    # ── Mount ─────────────────────────────────────────────────────────────────
 
     def on_mount(self) -> None:
-        self.run_worker(self._load())
+        self.run_worker(self._load_devmode_state(), exclusive=False)
+        self.run_worker(self._detect_installed(), exclusive=False)
 
-    async def _load(self) -> None:
+    async def _load_devmode_state(self) -> None:
+        """Read current devmode state and set the switch without firing Changed."""
+        import asyncio
         from bluefinctl.core.devmode import _check_devmode_active
+        loop = asyncio.get_running_loop()
+        state = await loop.run_in_executor(None, _check_devmode_active)
+        self.query_one("#devmode-switch", AdwSwitchRow).set_value(state.active)
+
+    def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
+        if event.switch_row.id == "devmode-switch":
+            event.stop()
+            self._toggle_devmode(event.value)
+
+    @work(exclusive=True)
+    async def _toggle_devmode(self, enable: bool) -> None:
+        """Prompt and apply devmode group changes. Idempotent."""
+        import os
+        from bluefinctl.core.devmode import _check_devmode_active
+        from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
 
         loop = asyncio.get_running_loop()
         state = await loop.run_in_executor(None, _check_devmode_active)
 
-        if state.active:
-            groups = ", ".join(state.groups or [])
-            self.query_one("#devmode-status", Label).update(
-                f"  Developer Mode: ACTIVE\n"
-                f"  Groups: {groups}",
-            )
-        else:
-            self.query_one("#devmode-status", Label).update(
-                "  Developer Mode: INACTIVE\n"
-                "  Press Enter to enable developer mode",
-            )
+        # Already in desired state — just sync the switch and bail
+        if state.active == enable:
+            self.query_one("#devmode-switch", AdwSwitchRow).set_value(enable)
+            return
 
-        # Check runtime health
-        health_lines: list[str] = []
-
-        # Docker socket
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "info",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.communicate()
-            health_lines.append(
-                "[ok] Docker" if proc.returncode == 0 else "[X] Docker",
-            )
-        except FileNotFoundError:
-            health_lines.append("[--] Docker (not installed)")
-
-        # Podman socket
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "podman", "info",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.communicate()
-            health_lines.append(
-                "[ok] Podman" if proc.returncode == 0 else "[X] Podman",
-            )
-        except FileNotFoundError:
-            health_lines.append("[--] Podman (not installed)")
-
-        # Lima
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "lima", "list", "--format", "{{.Name}}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            stdout, _ = await proc.communicate()
-            if proc.returncode == 0 and stdout.strip():
-                vms = stdout.decode().strip().split("\n")
-                health_lines.append(f"[ok] Lima ({len(vms)} VM(s))")
-            else:
-                health_lines.append("[--] Lima (no VMs)")
-        except FileNotFoundError:
-            health_lines.append("[--] Lima (not installed)")
-
-        self.query_one("#runtime-health", Label).update(
-            "  " + "    ".join(health_lines),
-        )
-
-
-class ToolsTab(Static):
-    """DevMode Tools — list of dev tools with install status."""
-
-    DEFAULT_CSS = """
-    ToolsTab { height: auto; padding: 1 0; }
-    """
-
-    # Tool categories with (name, description) tuples
-    DEV_TOOLS = [
-        ("-- Dev Tools --", ""),
-        ("podman-compose", "Container orchestration"),
-        ("dive", "Container layer explorer"),
-        ("kind", "Local Kubernetes"),
-        ("devcontainer", "Devcontainer CLI"),
-    ]
-
-    PERF_TOOLS = [
-        ("-- Performance --", ""),
-        ("sysprof", "System profiler"),
-        ("bcc", "BPF compiler collection"),
-        ("bpftrace", "BPF tracing"),
-    ]
-
-    VIRT_TOOLS = [
-        ("-- Virtualization --", ""),
-        ("qemu-system-x86_64", "QEMU/KVM"),
-        ("incus", "Container/VM manager"),
-    ]
-
-    def compose(self) -> ComposeResult:
-        yield Label("Developer Tools", classes="card--title")
-        yield Label("  Loading...", id="tools-list")
-
-    def on_mount(self) -> None:
-        self.run_worker(self._load())
-
-    async def _load(self) -> None:
-        import shutil
-
-        all_tools = self.DEV_TOOLS + self.PERF_TOOLS + self.VIRT_TOOLS
-        lines: list[str] = []
-
-        for name, desc in all_tools:
-            if name.startswith("--"):
-                lines.append(f"\n  {name}")
-                continue
-            installed = shutil.which(name) is not None
-            status = "[ok]" if installed else "[--]"
-            lines.append(f"  {status} {name:<20} {desc}")
-
-        self.query_one("#tools-list", Label).update("\n".join(lines))
-
-
-class EnvironmentsTab(Static):
-    """DevMode Environments — Podman, Distrobox, Lima."""
-
-    DEFAULT_CSS = """
-    EnvironmentsTab { height: auto; padding: 1 0; }
-    """
-
-    def compose(self) -> ComposeResult:
-        with Static(classes="card"):
-            yield Label("Tier 1: Podman Desktop", classes="card--title")
-            yield Label("  Checking...", id="env-podman")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Tier 2: Distrobox", classes="card--title")
-            yield Label("  Checking...", id="env-distrobox")
-        yield Label("")
-        with Static(classes="card"):
-            yield Label("Tier 3: Lima", classes="card--title")
-            yield Label("  Checking...", id="env-lima")
-
-    def on_mount(self) -> None:
-        self.run_worker(self._load())
-
-    async def _load(self) -> None:
-        # Podman Desktop
-        import shutil
-
-        if shutil.which("podman-desktop"):
-            self.query_one("#env-podman", Label).update(
-                "  [ok] Installed\n"
-                "  Action: [open] Podman Desktop",
-            )
-        else:
-            self.query_one("#env-podman", Label).update(
-                "  Docker-compatible, zero VM tax\n"
-                "  [--] Not installed",
-            )
-
-        # Distrobox containers
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "distrobox", "list", "--no-color",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            stdout, _ = await proc.communicate()
-            if proc.returncode == 0:
-                lines = stdout.decode().strip().split("\n")
-                # Skip header line
-                containers = [ln for ln in lines[1:] if ln.strip()]
-                if containers:
-                    display_lines = []
-                    for c in containers[:5]:
-                        parts = c.split("|")
-                        if len(parts) >= 3:
-                            name = parts[1].strip()
-                            status = parts[2].strip()
-                            display_lines.append(f"    {name:<20} [{status}]")
-                    self.query_one("#env-distrobox", Label).update(
-                        f"  {len(containers)} container(s)\n"
-                        + "\n".join(display_lines)
-                        + "\n  Action: [n]ew container  [e]nter selected",
-                    )
-                else:
-                    self.query_one("#env-distrobox", Label).update(
-                        "  No containers\n"
-                        "  Action: [n]ew container",
-                    )
-            else:
-                self.query_one("#env-distrobox", Label).update(
-                    "  [--] distrobox not available",
+        username = os.environ.get("USER", "")
+        if enable:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal(
+                    "Enable Developer Mode",
+                    f"Add {username} to groups: docker, mock, lxd?\n\nA reboot is required to apply group changes.",
                 )
-        except FileNotFoundError:
-            self.query_one("#env-distrobox", Label).update(
-                "  [--] distrobox not installed",
             )
-
-        # Lima
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "lima", "list", "--format",
-                "{{.Name}} {{.Status}}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            stdout, _ = await proc.communicate()
-            if proc.returncode == 0 and stdout.strip():
-                vms = stdout.decode().strip().split("\n")
-                display_lines = []
-                for vm in vms[:5]:
-                    display_lines.append(f"    {vm}")
-                self.query_one("#env-lima", Label).update(
-                    "  WSL-equivalent Ubuntu VM\n"
-                    + "\n".join(display_lines)
-                    + "\n  Action: [Enter] to manage",
-                )
-            else:
-                self.query_one("#env-lima", Label).update(
-                    "  WSL-equivalent Ubuntu VM — persistent, $HOME mounted\n"
-                    "  [--] Not set up\n"
-                    "  Action: [Enter] to run guided setup",
-                )
-        except FileNotFoundError:
-            self.query_one("#env-lima", Label).update(
-                "  WSL-equivalent Ubuntu VM\n"
-                "  [--] Lima not installed\n"
-                "  Action: [Enter] to install and set up",
-            )
-
-
-class DevModeScreen(Screen[None]):
-    """Developer mode screen — tools, environments, Lima."""
-
-    BINDINGS = [
-        Binding("c", "launch_podman_tui", "podman-tui"),
-        Binding("a", "install_all", "Install All"),
-    ]
-
-    DEFAULT_CSS = """
-    DevModeScreen {
-        layout: horizontal;
-    }
-    #devmode-content {
-        width: 1fr;
-        height: 1fr;
-        padding: 1 2;
-    }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Sidebar(active="devmode")
-        with ScrollableContainer(id="devmode-content"):
-            with TabbedContent():
-                with TabPane("Overview", id="tab-overview"):
-                    yield OverviewTab()
-                with TabPane("Tools", id="tab-tools"):
-                    yield ToolsTab()
-                with TabPane("Environments", id="tab-envs"):
-                    yield EnvironmentsTab()
-
-    def action_launch_podman_tui(self) -> None:
-        """Launch podman-tui in a new terminal."""
-        import shutil
-
-        from bluefinctl.util.terminal import launch_in_terminal
-
-        if shutil.which("podman-tui"):
-            launch_in_terminal(["podman-tui"], title="podman-tui")
-        else:
-            self.notify("podman-tui not installed", severity="warning")
-
-    async def action_install_all(self) -> None:
-        """Install all missing dev tools."""
-        from bluefinctl.screens._modals import ConfirmModal
-        from bluefinctl.widgets.operation_modal import OperationModal
-
-        confirmed = await self.app.push_screen_wait(
-            ConfirmModal(
-                "Install All Dev Tools",
-                "Install all missing developer tools via Homebrew?",
-            ),
-        )
-        if confirmed:
-            from bluefinctl.core.progress import BrewInstallParser
-
+            if not confirmed:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(False)
+                return
+            cmds = " && ".join([
+                f"usermod -aG docker {username} 2>/dev/null || true",
+                f"usermod -aG mock   {username} 2>/dev/null || true",
+                f"usermod -aG lxd    {username} 2>/dev/null || true",
+            ])
             rc = await self.app.push_screen_wait(
-                OperationModal(
-                    "Installing Dev Tools",
-                    command=["brew", "install"] + [
-                        "podman-compose", "dive", "kind",
-                        "devcontainer", "sysprof", "bcc", "bpftrace",
-                    ],
-                    parser=BrewInstallParser(total_packages=7),
-                ),
+                OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
             )
             if rc == 0:
-                self.notify("All dev tools installed", title="DevMode")
+                system_notify("Developer Mode", "Groups added. Reboot to apply.")
+            else:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(False)
+        else:
+            confirmed = await self.app.push_screen_wait(
+                ConfirmModal(
+                    "Disable Developer Mode",
+                    f"Remove {username} from groups: docker, mock, lxd?",
+                )
+            )
+            if not confirmed:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(True)
+                return
+            cmds = " && ".join([
+                f"gpasswd -d {username} docker 2>/dev/null || true",
+                f"gpasswd -d {username} mock   2>/dev/null || true",
+                f"gpasswd -d {username} lxd    2>/dev/null || true",
+            ])
+            rc = await self.app.push_screen_wait(
+                OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
+            )
+            if rc != 0:
+                self.query_one("#devmode-switch", AdwSwitchRow).set_value(True)
+
+    async def _detect_installed(self) -> None:
+        """Check install state for all tools and update button labels."""
+        from bluefinctl.core.devmode import (
+            is_docker_installed,
+            is_helix_installed,
+            is_incus_installed,
+            is_jetbrains_installed,
+            is_lima_installed,
+            is_neovim_installed,
+            is_podman_desktop_installed,
+            is_vms_installed,
+            is_vscode_installed,
+            is_vscodium_installed,
+            is_zed_installed,
+        )
+
+        loop = asyncio.get_running_loop()
+        detectors: dict[str, object] = {
+            "docker":    is_docker_installed,
+            "podman":    is_podman_desktop_installed,
+            "lima":      is_lima_installed,
+            "incus":     is_incus_installed,
+            "vscode":    is_vscode_installed,
+            "vscodium":  is_vscodium_installed,
+            "zed":       is_zed_installed,
+            "jetbrains": is_jetbrains_installed,
+            "neovim":    is_neovim_installed,
+            "helix":     is_helix_installed,
+            "vms":       is_vms_installed,
+        }
+        from typing import Any
+        tool_ids = list(detectors.keys())
+        raw_tasks: list[Any] = [
+            loop.run_in_executor(None, detectors[tid])  # type: ignore[arg-type]
+            for tid in tool_ids
+        ]
+        gather_results: list[Any] = list(
+            await asyncio.gather(*raw_tasks, return_exceptions=True)
+        )
+        for tool_id, result in zip(tool_ids, gather_results, strict=True):
+            if isinstance(result, bool):
+                self._update_tool_button(tool_id, result)
+
+    # ── Button helpers ────────────────────────────────────────────────────────
+
+    def _update_tool_button(self, tool_id: str, installed: bool) -> None:
+        """Set the Install/Installed ✓ state for a tool button."""
+        from textual.css.query import NoMatches
+        try:
+            btn = self.query_one(f"#install-{tool_id}", Button)
+            if installed:
+                btn.label = "Installed ✓"
+                btn.disabled = True
+                btn.variant = "success"
+            else:
+                btn.label = "Install"
+                btn.disabled = False
+                btn.variant = "primary"
+        except NoMatches:
+            pass
+
+    # ── Event handlers ────────────────────────────────────────────────────────
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id or ""
+        if btn_id.startswith("install-"):
+            tool_id = btn_id[len("install-"):]
+            event.stop()
+            self._install_tool(tool_id)
+
+    # ── Install worker ────────────────────────────────────────────────────────
+
+    @work(exclusive=True)
+    async def _install_tool(self, tool_id: str) -> None:
+        """Run the install steps for ``tool_id``, streaming progress to OpsBar."""
+        from bluefinctl.core.devmode import TOOL_NAMES, get_install_steps
+
+        ops  = self.query_one(OpsBar)
+        name = TOOL_NAMES.get(tool_id, tool_id)
+        ops.set_running(f"Installing {name}…")
+
+        # Disable the button immediately so double-clicks are ignored
+        self._update_tool_button(tool_id, False)
+        try:
+            btn = self.query_one(f"#install-{tool_id}", Button)
+            btn.disabled = True
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            cur_step = 0
+            cur_total = 0
+            async for update in get_install_steps(tool_id):
+                if update.step is not None:
+                    cur_step = update.step
+                if update.total_steps is not None:
+                    cur_total = update.total_steps
+                if update.step and update.total_steps:
+                    ops.set_running(
+                        update.message,
+                        step=update.step,
+                        total=update.total_steps,
+                    )
+                elif update.message:
+                    ops.set_running(update.message, step=cur_step, total=cur_total)
+
+            ops.set_complete(f"✓  {name} installed")
+            ops.add_completed(name)
+            self._update_tool_button(tool_id, True)
+            system_notify(f"{name} installed", "Ready to use")
+
+        except Exception as exc:  # noqa: BLE001
+            ops.set_error(f"✗  Failed — {exc}")
+            # Re-enable the button so the user can retry
+            self._update_tool_button(tool_id, False)
+            system_notify(f"{name} install failed", str(exc), urgency="critical")
