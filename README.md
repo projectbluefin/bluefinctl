@@ -87,20 +87,6 @@ Replaces `ujust update` with a beautiful terminal ceremony:
 
 ---
 
-## Features
-
-| Feature | Details |
-|---------|---------|
-| **GNOME Theming** | Reads accent color + color-scheme, applies live across the UI |
-| **Unified Progress** | Every subprocess streams behind the same OpsBar with spinner + bar |
-| **Focus Mode** | Pause updates for 1h / tonight / tomorrow / indefinitely |
-| **Channel Switch** | stable to testing with confirmation; rollback calendar |
-| **OSC integration** | Progress in terminal tab, title tracks current operation |
-| **Headless CLI** | Every TUI action has a `bctl <subcommand>` scriptable path |
-| **Agentic-ready** | AGENTS.md + skill files designed for AI-driven development |
-
----
-
 ## Architecture
 
 ```
