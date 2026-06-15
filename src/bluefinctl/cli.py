@@ -80,23 +80,11 @@ def update(
     asyncio.run(run_update_cli(accent_hex=_accent_hex, has_containers=_has_containers))
 
 @app.command()
-def devmode(
-    action: str = typer.Argument("status", help="on/off/status"),
-) -> None:
-    """Toggle or check developer mode."""
-    from bluefinctl.core.devmode import _check_devmode_active, toggle_devmode
+def devmode() -> None:
+    """Open the Developer screen."""
+    from bluefinctl.app import BluefinCtl
 
-    if action == "status":
-        state = _check_devmode_active()
-        if state.active:
-            typer.echo(f"Developer mode: ACTIVE (groups: {', '.join(state.groups or [])})")
-        else:
-            typer.echo("Developer mode: INACTIVE")
-    elif action in ("on", "off"):
-        toggle_devmode()
-    else:
-        typer.echo(f"Unknown action: {action}. Use on/off/status.", err=True)
-        raise typer.Exit(1)
+    BluefinCtl(start_screen="devmode").run()
 
 
 @app.command()
