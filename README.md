@@ -13,7 +13,7 @@ Built on [Textual](https://textual.textualize.io/). Matches your GNOME accent co
 ## Install
 
 ```bash
-brew trust --tap projectbluefin/bluefinctl && brew install projectbluefin/bluefinctl/bluefinctl
+brew trust --tap projectbluefin/bluefinctl && brew tap projectbluefin/bluefinctl && brew install bluefinctl
 ```
 
 **What the formula installs:**
