@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "textual>=1.0,<2.0",
+    "textual>=8.2,<8.3",
     "typer>=0.12",
     "rich>=13.0",
 ]
