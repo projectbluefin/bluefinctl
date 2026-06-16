@@ -1,6 +1,6 @@
 # bluefinctl
 
-> Keyboard-driven TUI control panel for [Bluefin OS](https://projectbluefin.io) —
+> Keyboard-driven TUI control panel for [Bluefin](https://projectbluefin.io) —
 > system identity, updates, developer tooling, and AI workstation management
 > from one terminal dashboard.
 
