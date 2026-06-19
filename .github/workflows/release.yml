@@ -12,7 +12,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: actions/setup-python@v5
         with:
@@ -37,25 +37,32 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
+      - name: Generate mergeraptor app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.MERGERAPTOR_APP_ID }}
+          private-key: ${{ secrets.MERGERAPTOR_PRIVATE_KEY }}
+          repositories: homebrew-bluefinctl
+
       - name: Update Homebrew tap formula
         env:
-          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ github.ref_name }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
           FILENAME: ${{ steps.sha.outputs.filename }}
         run: |
           VERSION="${TAG#v}"
           URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${FILENAME}"
-          # Fetch current file SHA (required by GitHub contents API for updates)
-          FILE_SHA=$(gh api repos/projectbluefin/homebrew-bluefinctl/contents/bluefinctl.rb --jq '.sha')
-          # Build updated formula content
-          CURRENT=$(gh api repos/projectbluefin/homebrew-bluefinctl/contents/bluefinctl.rb --jq '.content' | base64 -d)
-          UPDATED=$(echo "$CURRENT" \
-            | sed -e "s|url \".*\"|url \"${URL}\"|" \
-                  -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
-                  -e "s|version \".*\"|version \"${VERSION}\"|")
-          ENCODED=$(echo "$UPDATED" | base64 -w0)
-          gh api --method PUT repos/projectbluefin/homebrew-bluefinctl/contents/bluefinctl.rb \
-            --field message="chore: update bluefinctl to ${TAG}" \
-            --field content="$ENCODED" \
-            --field sha="$FILE_SHA"
+          git clone https://x-access-token:${GH_TOKEN}@github.com/projectbluefin/homebrew-bluefinctl.git tap
+          sed -i \
+            -e "s|url \".*\"|url \"${URL}\"|" \
+            -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
+            -e "s|version \".*\"|version \"${VERSION}\"|" \
+            tap/bluefinctl.rb
+          cd tap
+          git config user.name "mergeraptor[bot]"
+          git config user.email "mergeraptor[bot]@users.noreply.github.com"
+          git add bluefinctl.rb
+          git commit -m "chore: update bluefinctl to ${TAG}" || echo "no changes"
+          git push
