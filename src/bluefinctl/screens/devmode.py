@@ -153,13 +153,14 @@ class DevModeScreen(Screen[None]):
     async def _load_devmode_state(self) -> None:
         """Read current devmode state and set the switch without firing Changed."""
         import asyncio
+
         from bluefinctl.core.devmode import _check_devmode_active
         loop = asyncio.get_running_loop()
         state = await loop.run_in_executor(None, _check_devmode_active)
         self.query_one("#devmode-switch", AdwSwitchRow).set_value(state.active)
 
     def on_adw_switch_row_changed(self, event: AdwSwitchRow.Changed) -> None:
-        if event.switch_row.id == "devmode-switch":
+        if event.row.id == "devmode-switch":
             event.stop()
             self._toggle_devmode(event.value)
 
@@ -167,6 +168,7 @@ class DevModeScreen(Screen[None]):
     async def _toggle_devmode(self, enable: bool) -> None:
         """Prompt and apply devmode group changes. Idempotent."""
         import os
+
         from bluefinctl.core.devmode import _check_devmode_active
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
 
@@ -183,7 +185,8 @@ class DevModeScreen(Screen[None]):
             confirmed = await self.app.push_screen_wait(
                 ConfirmModal(
                     "Enable Developer Mode",
-                    f"Add {username} to groups: docker, mock, lxd?\n\nA reboot is required to apply group changes.",
+                    f"Add {username} to groups: docker, mock, lxd?\n"
+                    "A reboot is required to apply group changes.",
                 )
             )
             if not confirmed:

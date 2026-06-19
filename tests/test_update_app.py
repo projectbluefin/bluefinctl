@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
@@ -44,7 +43,7 @@ async def test_run_update_cli_success() -> None:
 async def test_run_update_cli_bootc_failure() -> None:
     async def _failing_bootc() -> AsyncIterator[BootcEvent]:
         raise RuntimeError("bootc exploded")
-        yield  # noqa: unreachable
+        yield  # type: ignore[misc]  # unreachable — needed to make function an async generator
 
     with patch(
         "bluefinctl.core.update_runner.run_bootc_upgrade",

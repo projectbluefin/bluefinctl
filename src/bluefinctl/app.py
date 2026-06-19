@@ -121,7 +121,7 @@ class BluefinCtl(App[None]):
     def compose(self) -> ComposeResult:
         """App chrome — screens handle their own nav and status bars."""
         return
-        yield  # type: ignore[misc]  # ponytail: empty generator
+        yield  # noqa: SIM113  # ponytail: empty generator
 
     @property
     def is_bootc(self) -> bool:

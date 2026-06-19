@@ -1,6 +1,6 @@
 [project]
 name = "bluefinctl"
-version = "0.2.0"
+version = "0.2.1"
 description = "TUI control panel for Bluefin OS"
 readme = "README.md"
 license = "MIT"
@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "textual>=1.0,<2.0",
+    "textual>=8.2",
     "typer>=0.12",
     "rich>=13.0",
 ]
