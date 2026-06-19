@@ -269,18 +269,20 @@ class DevModeScreen(Screen[None]):
     # ── Button helpers ────────────────────────────────────────────────────────
 
     def _update_tool_button(self, tool_id: str, installed: bool) -> None:
-        """Set the Install/Installed ✓ state for a tool button."""
+        """Set the Install/Remove state for a tool button."""
         from textual.css.query import NoMatches
         try:
             btn = self.query_one(f"#install-{tool_id}", Button)
             if installed:
-                btn.label = "Installed ✓"
-                btn.disabled = True
-                btn.variant = "success"
+                btn.label = "Remove"
+                btn.disabled = False
+                btn.variant = "error"
+                btn.add_class("remove-mode")
             else:
                 btn.label = "Install"
                 btn.disabled = False
                 btn.variant = "primary"
+                btn.remove_class("remove-mode")
         except NoMatches:
             pass
 
@@ -291,7 +293,10 @@ class DevModeScreen(Screen[None]):
         if btn_id.startswith("install-"):
             tool_id = btn_id[len("install-"):]
             event.stop()
-            self._install_tool(tool_id)
+            if event.button.has_class("remove-mode"):
+                self._remove_tool(tool_id)
+            else:
+                self._install_tool(tool_id)
 
     # ── Install worker ────────────────────────────────────────────────────────
 
@@ -339,3 +344,48 @@ class DevModeScreen(Screen[None]):
             # Re-enable the button so the user can retry
             self._update_tool_button(tool_id, False)
             system_notify(f"{name} install failed", str(exc), urgency="critical")
+
+    # ── Remove worker ─────────────────────────────────────────────────────────
+
+    @work(exclusive=True)
+    async def _remove_tool(self, tool_id: str) -> None:
+        """Run the remove steps for ``tool_id``, streaming progress to OpsBar."""
+        from bluefinctl.core.devmode import TOOL_NAMES, get_remove_steps
+
+        ops  = self.query_one(OpsBar)
+        name = TOOL_NAMES.get(tool_id, tool_id)
+        ops.set_running(f"Removing {name}\u2026")
+
+        # Disable button immediately
+        try:
+            btn = self.query_one(f"#install-{tool_id}", Button)
+            btn.disabled = True
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            cur_step = 0
+            cur_total = 0
+            async for update in get_remove_steps(tool_id):
+                if update.step is not None:
+                    cur_step = update.step
+                if update.total_steps is not None:
+                    cur_total = update.total_steps
+                if update.step and update.total_steps:
+                    ops.set_running(
+                        update.message,
+                        step=update.step,
+                        total=update.total_steps,
+                    )
+                elif update.message:
+                    ops.set_running(update.message, step=cur_step, total=cur_total)
+
+            ops.set_complete(f"\u2713  {name} removed")
+            ops.add_completed(name)
+            self._update_tool_button(tool_id, False)
+            system_notify(f"{name} removed", "Uninstalled successfully")
+
+        except Exception as exc:  # noqa: BLE001
+            ops.set_error(f"\u2717  Failed — {exc}")
+            self._update_tool_button(tool_id, True)
+            system_notify(f"{name} remove failed", str(exc), urgency="critical")

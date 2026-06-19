@@ -736,25 +736,208 @@ async def install_incus_steps() -> AsyncGenerator[ProgressUpdate]:
         message="✓ Incus ready — log out to activate incus-admin group",
     )
 
+# ── Generic async remove helpers ─────────────────────────────────────────────
+
+async def _brew_uninstall_steps(
+    packages: list[str],
+    display_name: str,
+) -> AsyncGenerator[ProgressUpdate]:
+    yield ProgressUpdate(percent=0, step=1, total_steps=1, message=f"Removing {display_name}…")
+    proc = await asyncio.create_subprocess_exec(
+        "brew", "uninstall", *packages,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip()
+            if line:
+                yield ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"brew uninstall {display_name} failed (exit {rc})")
+    yield ProgressUpdate(percent=100, message=f"✓ {display_name} removed")
+
+
+async def _brew_cask_uninstall_steps(
+    cask: str,
+    display_name: str,
+) -> AsyncGenerator[ProgressUpdate]:
+    yield ProgressUpdate(percent=0, step=1, total_steps=1, message=f"Removing {display_name}…")
+    proc = await asyncio.create_subprocess_exec(
+        "brew", "uninstall", "--cask", cask,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip()
+            if line:
+                yield ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"brew uninstall --cask {cask} failed (exit {rc})")
+    yield ProgressUpdate(percent=100, message=f"✓ {display_name} removed")
+
+
+async def _flatpak_uninstall_steps(
+    app_id: str,
+    display_name: str = "",
+) -> AsyncGenerator[ProgressUpdate]:
+    name = display_name or app_id
+    yield ProgressUpdate(percent=0, step=1, total_steps=1, message=f"Removing {name}…")
+    proc = await asyncio.create_subprocess_exec(
+        "flatpak", "uninstall", "--system", "--noninteractive", app_id,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip()
+            if line:
+                yield ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"flatpak uninstall {app_id} failed (exit {rc})")
+    yield ProgressUpdate(percent=100, message=f"✓ {name} removed")
+
+
+# ── Per-tool remove step generators ──────────────────────────────────────────
+
+async def remove_docker_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_uninstall_steps(
+        ["docker", "docker-compose", "lazydocker", "dive"], "Docker",
+    ):
+        yield u
+    # Remove user from docker group (best-effort, non-fatal — mirrors disable_devmode)
+    proc = await asyncio.create_subprocess_exec(
+        "pkexec", "gpasswd", "-d", os.environ.get("USER", ""), "docker",
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+
+
+async def remove_podman_desktop_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _flatpak_uninstall_steps("io.podman_desktop.PodmanDesktop", "Podman Desktop"):
+        yield u
+
+
+async def remove_lima_steps() -> AsyncGenerator[ProgressUpdate]:
+    total = 3
+    yield ProgressUpdate(percent=0, step=1, total_steps=total, message="Stopping Lima VMs…")
+    proc = await asyncio.create_subprocess_exec(
+        "limactl", "stop", "ubuntu",
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+    yield ProgressUpdate(percent=30, step=2, total_steps=total, message="Deleting Lima VMs…")
+    proc2 = await asyncio.create_subprocess_exec(
+        "limactl", "delete", "ubuntu",
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc2.wait()
+    yield ProgressUpdate(percent=60, step=3, total_steps=total, message="Removing Lima…")
+    async for u in _brew_uninstall_steps(["lima"], "Lima"):
+        # ponytail: strip step/total to avoid progress bar reset
+        yield ProgressUpdate(percent=u.percent, message=u.message)
+
+
+async def remove_incus_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_uninstall_steps(["incus"], "Incus"):
+        yield u
+
+
+async def remove_vscode_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_cask_uninstall_steps("visual-studio-code-linux", "VS Code"):
+        yield u
+
+
+async def remove_vscodium_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_cask_uninstall_steps("vscodium-linux", "VSCodium"):
+        yield u
+
+
+async def remove_zed_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_cask_uninstall_steps("zed-linux", "Zed"):
+        yield u
+
+
+async def remove_jetbrains_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_cask_uninstall_steps("jetbrains-toolbox-linux", "JetBrains Toolbox"):
+        yield u
+
+
+async def remove_neovim_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_uninstall_steps(["neovim"], "Neovim"):
+        yield u
+
+
+async def remove_helix_steps() -> AsyncGenerator[ProgressUpdate]:
+    async for u in _brew_uninstall_steps(["helix"], "Helix"):
+        yield u
+
+
+async def remove_vms_steps() -> AsyncGenerator[ProgressUpdate]:
+    yield ProgressUpdate(percent=0, step=1, total_steps=2, message="Removing virt-manager…")
+    proc = await asyncio.create_subprocess_exec(
+        "flatpak", "uninstall", "--system", "--noninteractive",
+        "org.virt_manager.virt-manager",
+        "org.virt_manager.virt_manager.Extension.Qemu",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    if proc.stdout:
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip()
+            if line:
+                yield ProgressUpdate(message=line)
+    rc = await proc.wait()
+    if rc != 0:
+        raise RuntimeError(f"flatpak uninstall virt-manager failed (exit {rc})")
+    yield ProgressUpdate(percent=100, message="✓ Virtual Machines removed")
+
+
+async def get_remove_steps(tool_id: str) -> AsyncGenerator[ProgressUpdate]:
+    """Return the remove step generator for a feature portal tool ID."""
+    _dispatch = {
+        "docker":    remove_docker_steps,
+        "podman":    remove_podman_desktop_steps,
+        "lima":      remove_lima_steps,
+        "incus":     remove_incus_steps,
+        "vscode":    remove_vscode_steps,
+        "vscodium":  remove_vscodium_steps,
+        "zed":       remove_zed_steps,
+        "jetbrains": remove_jetbrains_steps,
+        "neovim":    remove_neovim_steps,
+        "helix":     remove_helix_steps,
+        "vms":       remove_vms_steps,
+    }
+    fn = _dispatch.get(tool_id)
+    if fn is None:
+        raise ValueError(f"Unknown tool: {tool_id}")
+    async for update in fn():
+        yield update
+
+
 async def get_install_steps(tool_id: str) -> AsyncGenerator[ProgressUpdate]:
     """Return the install step generator for a feature portal tool ID."""
-    _dispatch: dict[str, AsyncGenerator[ProgressUpdate]] = {
-        "docker":    install_docker_steps(),
-        "podman":    install_podman_desktop_steps(),
-        "lima":      install_lima_steps(),
-        "incus":     install_incus_steps(),
-        "vscode":    install_vscode_steps(),
-        "vscodium":  install_vscodium_steps(),
-        "zed":       install_zed_steps(),
-        "jetbrains": install_jetbrains_steps(),
-        "neovim":    install_neovim_steps(),
-        "helix":     install_helix_steps(),
-        "vms":       install_vms_steps(),
+    _dispatch = {
+        "docker":    install_docker_steps,
+        "podman":    install_podman_desktop_steps,
+        "lima":      install_lima_steps,
+        "incus":     install_incus_steps,
+        "vscode":    install_vscode_steps,
+        "vscodium":  install_vscodium_steps,
+        "zed":       install_zed_steps,
+        "jetbrains": install_jetbrains_steps,
+        "neovim":    install_neovim_steps,
+        "helix":     install_helix_steps,
+        "vms":       install_vms_steps,
     }
-    gen = _dispatch.get(tool_id)
-    if gen is None:
+    fn = _dispatch.get(tool_id)
+    if fn is None:
         raise ValueError(f"Unknown tool: {tool_id}")
-    async for update in gen:
+    async for update in fn():
         yield update
 
 

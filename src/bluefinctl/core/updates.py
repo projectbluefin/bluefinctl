@@ -283,13 +283,16 @@ async def activate_focus_mode(
     reason: str = "",
 ) -> None:
     """Activate focus mode — pause all updates."""
-    # Mask the timer
-    proc = await asyncio.create_subprocess_exec(
-        "pkexec", "systemctl", "mask", "uupd.timer",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
+    # Mask the timer (best-effort — pkexec may not be available in all envs)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pkexec", "systemctl", "mask", "uupd.timer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+    except FileNotFoundError:
+        pass  # pkexec not present; state still recorded below
 
     # Record state
     state = _read_state()
@@ -309,20 +312,23 @@ async def activate_focus_mode(
 
 async def deactivate_focus_mode() -> None:
     """Deactivate focus mode — resume updates."""
-    # Unmask and restart timer
-    proc = await asyncio.create_subprocess_exec(
-        "pkexec", "systemctl", "unmask", "uupd.timer",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
+    # Unmask and restart timer (best-effort)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pkexec", "systemctl", "unmask", "uupd.timer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
 
-    proc = await asyncio.create_subprocess_exec(
-        "pkexec", "systemctl", "enable", "--now", "uupd.timer",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
+        proc = await asyncio.create_subprocess_exec(
+            "pkexec", "systemctl", "enable", "--now", "uupd.timer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+    except FileNotFoundError:
+        pass  # pkexec not present; state still cleared below
 
     # Clear state
     state = _read_state()

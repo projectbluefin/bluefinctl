@@ -87,39 +87,70 @@ class TestFocusCommand:
         assert result.exit_code == 1
 
 
-class TestKitCommand:
-    def test_kit_list(self) -> None:
-        mock_bundle = MagicMock()
-        mock_bundle.name = "dx"
-        mock_bundle.state.value = "active"
-        mock_bundle.installed_count = 3
-        mock_bundle.total_count = 5
-        with patch(
-                "bluefinctl.core.bundles.get_bundles",
-                new=AsyncMock(return_value=[mock_bundle])
+class TestAICommand:
+    # Regression: B1 — ai deploy/stop with no stack was exit 0
+    def test_ai_deploy_no_stack_exits_1(self) -> None:
+        with patch("bluefinctl.core.ai.get_stacks", new=AsyncMock(return_value=(MagicMock(), []))):
+            result = runner.invoke(app, ["ai", "deploy"])
+        assert result.exit_code == 1
+        assert "Usage" in result.output
+
+    def test_ai_stop_no_stack_exits_1(self) -> None:
+        with patch("bluefinctl.core.ai.get_stacks", new=AsyncMock(return_value=(MagicMock(), []))):
+            result = runner.invoke(app, ["ai", "stop"])
+        assert result.exit_code == 1
+        assert "Usage" in result.output
+
+    # Regression: B1 — ai badarg was exit 0
+    def test_ai_unknown_action_exits_1(self) -> None:
+        result = runner.invoke(app, ["ai", "badaction"])
+        assert result.exit_code == 1
+
+    def test_ai_list_runs(self) -> None:
+        mock_gpu = MagicMock()
+        mock_gpu.display = "No discrete GPU detected"
+        with patch("bluefinctl.core.ai.get_stacks", new=AsyncMock(return_value=(mock_gpu, []))):
+            result = runner.invoke(app, ["ai", "list"])
+        assert result.exit_code == 0
+
+
+class TestFocusModeResilience:
+    # Regression: B3 — focus on/off crashed with FileNotFoundError when pkexec missing
+    def test_focus_on_no_pkexec_exits_0(self) -> None:
+        """focus on must not crash when pkexec is missing; state write still happens."""
+        import asyncio
+        from unittest.mock import patch as _patch
+
+        from bluefinctl.core.updates import activate_focus_mode
+
+        async def _run() -> None:
+            with _patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError("pkexec"),
             ):
-            result = runner.invoke(app, ["kit", "list"])
-        assert result.exit_code == 0
-        assert "dx" in result.output
+                # Should complete without raising
+                await activate_focus_mode()
+
+        asyncio.run(_run())  # must not raise
+
+    def test_focus_off_no_pkexec_exits_0(self) -> None:
+        """focus off must not crash when pkexec is missing."""
+        import asyncio
+        from unittest.mock import patch as _patch
+
+        from bluefinctl.core.updates import deactivate_focus_mode
+
+        async def _run() -> None:
+            with _patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError("pkexec"),
+            ):
+                await deactivate_focus_mode()
+
+        asyncio.run(_run())  # must not raise
 
 
-class TestInstallCommand:
-    def test_install_brew(self) -> None:
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
-            result = runner.invoke(app, ["install", "brew:ripgrep"])
-        assert result.exit_code == 0
-        assert any("ripgrep" in str(a) for a in mock_run.call_args[0])
 
-    def test_install_unknown_source(self) -> None:
-        result = runner.invoke(app, ["install", "apt:curl"])
-        assert result.exit_code == 1
-
-    def test_install_missing_name(self) -> None:
-        result = runner.invoke(app, ["install", "brew:"])
-        assert result.exit_code == 1
-
-
-class TestDevmodeCommand:
     def test_devmode_launches_tui(self) -> None:
         """devmode subcommand creates app with start_screen='devmode'."""
         with patch("bluefinctl.app.BluefinCtl") as mock_app:

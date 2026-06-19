@@ -63,3 +63,35 @@ async def test_devmode_screen_renders_install_buttons(
         assert "install-lima" in btn_ids
         assert "install-vscode" in btn_ids
         assert "install-vms" in btn_ids
+
+
+def test_get_remove_steps_dispatcher_covers_all_tools() -> None:
+    """get_remove_steps dispatches for every tool that get_install_steps handles."""
+    import asyncio
+    import inspect
+
+    from bluefinctl.core.devmode import TOOL_NAMES, get_remove_steps
+
+    async def _check() -> None:
+        for tool_id in TOOL_NAMES:
+            gen = get_remove_steps(tool_id)
+            assert inspect.isasyncgen(gen), f"{tool_id} remove steps is not an async generator"
+            await gen.aclose()
+
+    asyncio.run(_check())
+
+
+async def _run_remove(tool_id: str) -> None:
+    from bluefinctl.core.devmode import get_remove_steps
+    async for _ in get_remove_steps(tool_id):
+        pass
+
+
+def test_get_remove_steps_raises_for_unknown() -> None:
+    """get_remove_steps raises ValueError for unknown tool IDs."""
+    import asyncio
+
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown tool"):
+        asyncio.run(_run_remove("nonexistent-tool"))

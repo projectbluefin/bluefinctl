@@ -52,21 +52,27 @@ async def search_packages(query: str) -> list[FlatpakResult]:
 
 async def install_package(app_id: str) -> bool:
     """Install a Flatpak app from flathub."""
-    proc = await asyncio.create_subprocess_exec(
-        "flatpak", "install", "--noninteractive", "flathub", app_id,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-    return proc.returncode == 0
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "flatpak", "install", "--noninteractive", "flathub", app_id,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        return proc.returncode == 0
+    except FileNotFoundError:
+        return False
 
 
 async def remove_package(app_id: str) -> bool:
     """Remove a Flatpak app."""
-    proc = await asyncio.create_subprocess_exec(
-        "flatpak", "uninstall", "--noninteractive", app_id,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-    return proc.returncode == 0
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "flatpak", "uninstall", "--noninteractive", app_id,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        return proc.returncode == 0
+    except FileNotFoundError:
+        return False

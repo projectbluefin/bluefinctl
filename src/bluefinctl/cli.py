@@ -88,88 +88,6 @@ def devmode() -> None:
 
 
 @app.command()
-def kit(
-    action: str = typer.Argument("list", help="list/install/remove"),
-    name: str = typer.Argument(None, help="Kit name"),
-) -> None:
-    """Manage kits (Brewfile collections)."""
-    import asyncio
-
-    from rich.console import Console
-    from rich.table import Table
-
-    from bluefinctl.core.bundles import get_bundles
-
-    console = Console()
-
-    if action == "list":
-        bundles = asyncio.run(get_bundles())
-        table = Table(title="Kits")
-        table.add_column("Kit", style="bold")
-        table.add_column("Status")
-        table.add_column("Packages")
-        for b in bundles:
-            table.add_row(b.name, b.state.value, f"{b.installed_count}/{b.total_count}")
-        console.print(table)
-    elif action == "install" and name:
-        from bluefinctl.core.bundles import activate_bundle
-        typer.echo(f"Activating kit: {name}")
-        success = asyncio.run(activate_bundle(name))
-        if success:
-            typer.echo("Done")
-        else:
-            typer.echo("Failed", err=True)
-            raise typer.Exit(1)
-    else:
-        typer.echo("Usage: bluefinctl kit list | bluefinctl kit install <name>")
-
-
-@app.command(name="install")
-def install_package(
-    package: str = typer.Argument(
-        ..., help="Package spec: brew:<name> or flatpak:<app-id>"
-    ),
-) -> None:
-    """Install a package via brew or flatpak."""
-    import asyncio
-    import subprocess
-
-    from rich.console import Console
-
-    console = Console()
-
-    if package.startswith("brew:"):
-        name = package[len("brew:"):]
-        if not name:
-            typer.echo("Package name required after brew:", err=True)
-            raise typer.Exit(1)
-        console.print(f"[bold]Installing[/bold] {name} via Homebrew…")
-        result = subprocess.run(["brew", "install", name])
-        raise typer.Exit(result.returncode)
-
-    if package.startswith("flatpak:"):
-        app_id = package[len("flatpak:"):]
-        if not app_id:
-            typer.echo("App ID required after flatpak:", err=True)
-            raise typer.Exit(1)
-        console.print(f"[bold]Installing[/bold] {app_id} via Flatpak…")
-        from bluefinctl.core.flatpak import install_package as fp_install
-        success = asyncio.run(fp_install(app_id))
-        if success:
-            console.print(f"[green]ok[/green] Installed {app_id}")
-        else:
-            typer.echo(f"Failed to install {app_id}", err=True)
-            raise typer.Exit(1)
-
-    else:
-        typer.echo(
-            "Unknown package source. Use brew:<name> or flatpak:<app-id>",
-            err=True,
-        )
-        raise typer.Exit(1)
-
-
-@app.command()
 def ai(
     action: str = typer.Argument("list", help="list/deploy/stop"),
     stack: str = typer.Argument(None, help="Stack name"),
@@ -226,7 +144,8 @@ def ai(
             typer.echo(f"Stack not found: {stack}", err=True)
             raise typer.Exit(1)
     else:
-        typer.echo("Usage: bluefinctl ai list | ai deploy <stack> | ai stop <stack>")
+        typer.echo("Usage: bluefinctl ai list | ai deploy <stack> | ai stop <stack>", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
