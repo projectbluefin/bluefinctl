@@ -35,7 +35,7 @@ class DevTool:
     installed: bool = False
 
 
-DEVMODE_GROUPS = ["docker", "mock", "lxd"]
+DEVMODE_GROUPS = ["docker", "incus-admin", "libvirt", "dialout"]
 
 DEVMODE_PACKAGES = [
     "podman-compose",
