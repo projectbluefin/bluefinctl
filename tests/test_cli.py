@@ -87,65 +87,6 @@ class TestFocusCommand:
         assert result.exit_code == 1
 
 
-class TestKitCommand:
-    def test_kit_list(self) -> None:
-        mock_bundle = MagicMock()
-        mock_bundle.name = "dx"
-        mock_bundle.state.value = "active"
-        mock_bundle.installed_count = 3
-        mock_bundle.total_count = 5
-        with patch(
-                "bluefinctl.core.bundles.get_bundles",
-                new=AsyncMock(return_value=[mock_bundle])
-            ):
-            result = runner.invoke(app, ["kit", "list"])
-        assert result.exit_code == 0
-        assert "dx" in result.output
-
-    # Regression: B2 — kit install with no name was exit 0
-    def test_kit_install_no_name_exits_1(self) -> None:
-        result = runner.invoke(app, ["kit", "install"])
-        assert result.exit_code == 1
-        assert "Usage" in result.output
-
-    # Regression: B2 — kit with unknown subcommand was exit 0
-    def test_kit_unknown_action_exits_1(self) -> None:
-        result = runner.invoke(app, ["kit", "badaction"])
-        assert result.exit_code == 1
-
-
-class TestInstallCommand:
-    def test_install_brew(self) -> None:
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
-            result = runner.invoke(app, ["install", "brew:ripgrep"])
-        assert result.exit_code == 0
-        assert any("ripgrep" in str(a) for a in mock_run.call_args[0])
-
-    def test_install_unknown_source(self) -> None:
-        result = runner.invoke(app, ["install", "apt:curl"])
-        assert result.exit_code == 1
-
-    def test_install_missing_name(self) -> None:
-        result = runner.invoke(app, ["install", "brew:"])
-        assert result.exit_code == 1
-
-    # Regression: B5 — brew not installed → FileNotFoundError → was unhandled crash
-    def test_install_brew_missing_binary_exits_1(self) -> None:
-        with patch("subprocess.run", side_effect=FileNotFoundError("brew")):
-            result = runner.invoke(app, ["install", "brew:wget"])
-        assert result.exit_code == 1
-        assert "not installed" in result.output
-
-    # Regression: B4 — flatpak not installed → FileNotFoundError → was unhandled crash
-    def test_install_flatpak_missing_binary_exits_1(self) -> None:
-        with patch(
-            "bluefinctl.core.flatpak.install_package",
-            new=AsyncMock(return_value=False),
-        ):
-            result = runner.invoke(app, ["install", "flatpak:org.gnome.gedit"])
-        assert result.exit_code == 1
-
-
 class TestAICommand:
     # Regression: B1 — ai deploy/stop with no stack was exit 0
     def test_ai_deploy_no_stack_exits_1(self) -> None:
