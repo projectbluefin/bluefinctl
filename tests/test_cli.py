@@ -102,6 +102,17 @@ class TestKitCommand:
         assert result.exit_code == 0
         assert "dx" in result.output
 
+    # Regression: B2 — kit install with no name was exit 0
+    def test_kit_install_no_name_exits_1(self) -> None:
+        result = runner.invoke(app, ["kit", "install"])
+        assert result.exit_code == 1
+        assert "Usage" in result.output
+
+    # Regression: B2 — kit with unknown subcommand was exit 0
+    def test_kit_unknown_action_exits_1(self) -> None:
+        result = runner.invoke(app, ["kit", "badaction"])
+        assert result.exit_code == 1
+
 
 class TestInstallCommand:
     def test_install_brew(self) -> None:
@@ -118,8 +129,87 @@ class TestInstallCommand:
         result = runner.invoke(app, ["install", "brew:"])
         assert result.exit_code == 1
 
+    # Regression: B5 — brew not installed → FileNotFoundError → was unhandled crash
+    def test_install_brew_missing_binary_exits_1(self) -> None:
+        with patch("subprocess.run", side_effect=FileNotFoundError("brew")):
+            result = runner.invoke(app, ["install", "brew:wget"])
+        assert result.exit_code == 1
+        assert "not installed" in result.output
 
-class TestDevmodeCommand:
+    # Regression: B4 — flatpak not installed → FileNotFoundError → was unhandled crash
+    def test_install_flatpak_missing_binary_exits_1(self) -> None:
+        with patch(
+            "bluefinctl.core.flatpak.install_package",
+            new=AsyncMock(return_value=False),
+        ):
+            result = runner.invoke(app, ["install", "flatpak:org.gnome.gedit"])
+        assert result.exit_code == 1
+
+
+class TestAICommand:
+    # Regression: B1 — ai deploy/stop with no stack was exit 0
+    def test_ai_deploy_no_stack_exits_1(self) -> None:
+        with patch("bluefinctl.core.ai.get_stacks", new=AsyncMock(return_value=(MagicMock(), []))):
+            result = runner.invoke(app, ["ai", "deploy"])
+        assert result.exit_code == 1
+        assert "Usage" in result.output
+
+    def test_ai_stop_no_stack_exits_1(self) -> None:
+        with patch("bluefinctl.core.ai.get_stacks", new=AsyncMock(return_value=(MagicMock(), []))):
+            result = runner.invoke(app, ["ai", "stop"])
+        assert result.exit_code == 1
+        assert "Usage" in result.output
+
+    # Regression: B1 — ai badarg was exit 0
+    def test_ai_unknown_action_exits_1(self) -> None:
+        result = runner.invoke(app, ["ai", "badaction"])
+        assert result.exit_code == 1
+
+    def test_ai_list_runs(self) -> None:
+        mock_gpu = MagicMock()
+        mock_gpu.display = "No discrete GPU detected"
+        with patch("bluefinctl.core.ai.get_stacks", new=AsyncMock(return_value=(mock_gpu, []))):
+            result = runner.invoke(app, ["ai", "list"])
+        assert result.exit_code == 0
+
+
+class TestFocusModeResilience:
+    # Regression: B3 — focus on/off crashed with FileNotFoundError when pkexec missing
+    def test_focus_on_no_pkexec_exits_0(self) -> None:
+        """focus on must not crash when pkexec is missing; state write still happens."""
+        import asyncio
+        from unittest.mock import patch as _patch
+
+        from bluefinctl.core.updates import activate_focus_mode
+
+        async def _run() -> None:
+            with _patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError("pkexec"),
+            ):
+                # Should complete without raising
+                await activate_focus_mode()
+
+        asyncio.run(_run())  # must not raise
+
+    def test_focus_off_no_pkexec_exits_0(self) -> None:
+        """focus off must not crash when pkexec is missing."""
+        import asyncio
+        from unittest.mock import patch as _patch
+
+        from bluefinctl.core.updates import deactivate_focus_mode
+
+        async def _run() -> None:
+            with _patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError("pkexec"),
+            ):
+                await deactivate_focus_mode()
+
+        asyncio.run(_run())  # must not raise
+
+
+
     def test_devmode_launches_tui(self) -> None:
         """devmode subcommand creates app with start_screen='devmode'."""
         with patch("bluefinctl.app.BluefinCtl") as mock_app:

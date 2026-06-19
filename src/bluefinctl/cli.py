@@ -121,7 +121,8 @@ def kit(
             typer.echo("Failed", err=True)
             raise typer.Exit(1)
     else:
-        typer.echo("Usage: bluefinctl kit list | bluefinctl kit install <name>")
+        typer.echo("Usage: bluefinctl kit list | bluefinctl kit install <name>", err=True)
+        raise typer.Exit(1)
 
 
 @app.command(name="install")
@@ -144,8 +145,12 @@ def install_package(
             typer.echo("Package name required after brew:", err=True)
             raise typer.Exit(1)
         console.print(f"[bold]Installing[/bold] {name} via Homebrew…")
-        result = subprocess.run(["brew", "install", name])
-        raise typer.Exit(result.returncode)
+        try:
+            result = subprocess.run(["brew", "install", name])
+            raise typer.Exit(result.returncode)
+        except FileNotFoundError:
+            typer.echo("brew is not installed on this system", err=True)
+            raise typer.Exit(1) from None
 
     if package.startswith("flatpak:"):
         app_id = package[len("flatpak:"):]
@@ -166,7 +171,7 @@ def install_package(
             "Unknown package source. Use brew:<name> or flatpak:<app-id>",
             err=True,
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1)  # unreachable if flatpak branch matched
 
 
 @app.command()
@@ -226,7 +231,8 @@ def ai(
             typer.echo(f"Stack not found: {stack}", err=True)
             raise typer.Exit(1)
     else:
-        typer.echo("Usage: bluefinctl ai list | ai deploy <stack> | ai stop <stack>")
+        typer.echo("Usage: bluefinctl ai list | ai deploy <stack> | ai stop <stack>", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
