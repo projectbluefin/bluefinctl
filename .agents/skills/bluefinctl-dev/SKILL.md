@@ -172,23 +172,71 @@ The `add_completed(name)` method scrolls `✓ name` into the left ticker strip.
 
 ## Feature Portal pattern — devmode screen
 
-The Developer screen is now a feature portal: each `AdwActionRow` presents a named
-capability with a subtitle pitch + inline Install button as the `trailing=` widget.
+The Developer screen is a feature portal: each `AdwActionRow` presents a named
+capability with a subtitle pitch + inline Install/Remove button as the `trailing=` widget.
+
+All buttons share the same `id` prefix `install-<tool_id>`. State is toggled via a
+`remove-mode` CSS class — one button, two modes:
 
 ```python
+# Helper used at compose time
+def _install_btn(tool_id: str) -> Button:
+    return Button("Install", id=f"install-{tool_id}", variant="primary")
+
 AdwActionRow(
     "Docker",
     subtitle="The Bluefin DX ships Docker with compose, lazydocker, and dive.",
-    trailing=Button("Install", id="install-docker", variant="primary"),
+    trailing=_install_btn("docker"),
     id="tool-docker",
 )
 ```
 
-Install state is detected on mount via background workers and buttons are updated:
-- Not installed → `"Install"` button enabled, `variant="primary"`
-- Installed → `"Installed ✓"` button disabled, `variant="success"`
+Install/remove state is detected on mount via a background worker and buttons are updated:
+- Not installed → `"Install"` button, `variant="primary"` (no `remove-mode` class)
+- Installed → `"Remove"` button, `variant="error"`, `.add_class("remove-mode")`
 
-Install operations stream `ProgressUpdate` objects to OpsBar directly — **no modals**.
+```python
+def _update_tool_button(self, tool_id: str, installed: bool) -> None:
+    btn = self.query_one(f"#install-{tool_id}", Button)
+    if installed:
+        btn.label = "Remove"
+        btn.variant = "error"
+        btn.add_class("remove-mode")
+    else:
+        btn.label = "Install"
+        btn.variant = "primary"
+        btn.remove_class("remove-mode")
+```
+
+Event routing dispatches to `_install_tool` or `_remove_tool` based on the class:
+
+```python
+def on_button_pressed(self, event: Button.Pressed) -> None:
+    btn_id = event.button.id or ""
+    if btn_id.startswith("install-"):
+        tool_id = btn_id[len("install-"):]
+        event.stop()
+        if event.button.has_class("remove-mode"):
+            self._remove_tool(tool_id)
+        else:
+            self._install_tool(tool_id)
+```
+
+Core dispatchers in `core/devmode.py` — `get_install_steps(tool_id)` and
+`get_remove_steps(tool_id)` — return the appropriate async generator. Both use a
+lazy dict of callables (not pre-called generators):
+
+```python
+async def get_remove_steps(tool_id: str) -> AsyncGenerator[ProgressUpdate]:
+    _dispatch = {"docker": remove_docker_steps, "podman": remove_podman_desktop_steps, ...}
+    fn = _dispatch.get(tool_id)
+    if fn is None:
+        raise ValueError(f"Unknown tool: {tool_id}")
+    async for update in fn():
+        yield update
+```
+
+All operations stream `ProgressUpdate` objects to OpsBar directly — **no modals**.
 
 ## `display: flex` is invalid in Textual CSS
 

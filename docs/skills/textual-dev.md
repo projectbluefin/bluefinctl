@@ -284,16 +284,39 @@ def compose(self) -> ComposeResult:
 
 Without this, content clips at the header and the scrollbar is missing.
 
-### AdwActionRow with trailing install button
+### AdwActionRow with trailing install/remove button
+
+One button, two modes — toggled via a `remove-mode` CSS class. Button ID stays
+stable (`install-<tool_id>`) regardless of state:
 
 ```python
+# At compose time
 row = AdwActionRow(
     "Podman Desktop",
     subtitle="Cloud-native development",
-    id="row-podman",
+    trailing=Button("Install", id="install-podman", variant="primary"),
+    id="tool-podman",
 )
-row.add_trailing(Button("Install", id="install-podman", variant="primary"))
 yield row
+
+# When detection confirms installed:
+btn = self.query_one("#install-podman", Button)
+btn.label = "Remove"
+btn.variant = "error"
+btn.add_class("remove-mode")
+
+# When uninstalled:
+btn.label = "Install"
+btn.variant = "primary"
+btn.remove_class("remove-mode")
+```
+
+Dispatch in `on_button_pressed`:
+```python
+if event.button.has_class("remove-mode"):
+    self._remove_tool(tool_id)
+else:
+    self._install_tool(tool_id)
 ```
 
 ### HIG rules to follow

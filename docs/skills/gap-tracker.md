@@ -90,7 +90,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | Lima install chains VS Code automatically | ✅ |
 | Incus: `brew install incus` + `pkexec usermod -aG incus-admin` | ✅ |
 | Lima VM status from `limactl list --format json` | ⬜ Detection uses `limactl list --json`; could be richer |
-| Remove/uninstall actions | ⬜ Only Install supported; no Remove button yet |
+| Remove/uninstall actions | ✅ Remove button shown when tool is installed; streams via OpsBar |
 
 ### AI (`screens/ai.py`)
 
@@ -182,7 +182,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | `OpsBar` (animated block bar) | `widgets/ops_bar.py` | ✅ |
 | `RollbackCalendar` | `widgets/rollback_calendar.py` | ✅ |
 | `OperationModal` | `widgets/operation_modal.py` | ✅ (exists, no longer used in screens) |
-| `ChangelogViewer` | `widgets/changelog.py` | ⬜ stub only |
+| `ChangelogViewer` | `widgets/changelog.py` | ✅ Reads local changelog.md, falls back to bootc image tag |
 
 ## Known bugs / quirks
 
