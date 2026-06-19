@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install build tools
         run: pip install build
@@ -39,22 +39,23 @@ jobs:
 
       - name: Update Homebrew tap formula
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
           FILENAME: ${{ steps.sha.outputs.filename }}
         run: |
           VERSION="${TAG#v}"
           URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${FILENAME}"
-          git clone https://x-access-token:${GH_TOKEN}@github.com/projectbluefin/homebrew-bluefinctl.git tap
-          sed -i \
-            -e "s|url \".*\"|url \"${URL}\"|" \
-            -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
-            -e "s|version \".*\"|version \"${VERSION}\"|" \
-            tap/bluefinctl.rb
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bluefinctl.rb
-          git commit -m "chore: update bluefinctl to ${TAG}" || echo "no changes"
-          git push
+          # Fetch current file SHA (required by GitHub contents API for updates)
+          FILE_SHA=$(gh api repos/projectbluefin/homebrew-bluefinctl/contents/bluefinctl.rb --jq '.sha')
+          # Build updated formula content
+          CURRENT=$(gh api repos/projectbluefin/homebrew-bluefinctl/contents/bluefinctl.rb --jq '.content' | base64 -d)
+          UPDATED=$(echo "$CURRENT" \
+            | sed -e "s|url \".*\"|url \"${URL}\"|" \
+                  -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
+                  -e "s|version \".*\"|version \"${VERSION}\"|")
+          ENCODED=$(echo "$UPDATED" | base64 -w0)
+          gh api --method PUT repos/projectbluefin/homebrew-bluefinctl/contents/bluefinctl.rb \
+            --field message="chore: update bluefinctl to ${TAG}" \
+            --field content="$ENCODED" \
+            --field sha="$FILE_SHA"

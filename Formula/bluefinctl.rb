@@ -3,9 +3,9 @@ class Bluefinctl < Formula
 
   desc "TUI control panel for Bluefin OS — packages, updates, containers, devmode"
   homepage "https://github.com/projectbluefin/bluefinctl"
-  url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.2.0/bluefinctl-0.2.0.tar.gz"
-  sha256 "f43279a117502fadd58ac1953d92a9a1e4592b10a1cbda0d446784faafbe7dcb"
-  version "0.2.0"
+  url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.2.1/bluefinctl-0.2.1.tar.gz"
+  sha256 "dfedcb7104abf307c8f6d8544e2e15a67ecd598459fe10dd609423af7abedd5a"
+  version "0.2.1"
   license "MIT"
 
   depends_on "python@3.13"
