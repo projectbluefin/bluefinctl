@@ -47,6 +47,13 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Label
 
+from bluefinctl.util.osc import (
+    osc_progress,
+    osc_progress_clear,
+    osc_progress_error,
+    osc_progress_indeterminate,
+)
+
 # ── Spinner ───────────────────────────────────────────────────────────────────
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _SPINNER_LEN = len(_SPINNER)
@@ -213,6 +220,7 @@ class OpsBar(Widget):
         self._completed = []
         self._refresh_label()
         self._set_confirm_visible(False)
+        osc_progress_clear()
 
     def set_running(
         self,
@@ -240,6 +248,10 @@ class OpsBar(Widget):
             self._total = total
         self._refresh_label()
         self._set_confirm_visible(False)
+        if self._total > 0:
+            osc_progress(max(1, int(100 * self._step / self._total)))
+        else:
+            osc_progress_indeterminate()
 
     def add_completed(self, name: str) -> None:
         """Mark a step done — scrolls ``✓ <name>`` into the ticker strip."""
@@ -255,6 +267,7 @@ class OpsBar(Widget):
         self._completed = []
         self._refresh_label()
         self._set_confirm_visible(False)
+        osc_progress_clear()
 
     def set_error(self, message: str) -> None:
         """Show a red failure message."""
@@ -263,6 +276,7 @@ class OpsBar(Widget):
         self._completed = []
         self._refresh_label()
         self._set_confirm_visible(False)
+        osc_progress_error()
 
     def set_confirm(self, message: str, op: str) -> None:
         """Show confirm/cancel buttons for a pending destructive operation.

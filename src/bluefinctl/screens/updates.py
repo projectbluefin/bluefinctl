@@ -30,6 +30,7 @@ from bluefinctl.widgets.adw import (
     AdwPropertyRow,
     AdwSwitchRow,
 )
+from bluefinctl.widgets.changelog import ChangelogViewer
 from bluefinctl.widgets.ops_bar import OpsBar
 
 
@@ -164,6 +165,9 @@ class UpdatesScreen(Screen[None]):
                         ),
                     )
 
+        # Changelog — below two-column section, full width
+            yield AdwPreferencesGroup("Release Notes", ChangelogViewer())
+
         # Pinned footer — Update Now + Check for Updates (bottom-right)
         with Horizontal(id="update-footer"):
             yield Button("Check for Updates",                id="btn-check")
@@ -183,32 +187,39 @@ class UpdatesScreen(Screen[None]):
         from bluefinctl.core.system import get_system_info
         from bluefinctl.core.updates import UpdateStrategy, get_reboot_strategy, get_update_status
 
+        is_bootc = self.app.is_bootc  # type: ignore[attr-defined]
+
         # ── image info ────────────────────────────────────────────────────────
-        try:
-            info = await get_system_info()
+        if not is_bootc:
+            self.query_one("#image-banner", Label).update("bootc not available on this system")
+            for row_id in ("img-signed", "img-compression", "img-channel", "img-last-updated"):
+                self.query_one(f"#{row_id}", AdwPropertyRow).update_value("— unavailable")
+        else:
+            try:
+                info = await get_system_info()
 
-            # Banner — full ref with tag, stripped of transport prefix
-            self.query_one("#image-banner", Label).update(info.full_clean_ref)
+                # Banner — full ref with tag, stripped of transport prefix
+                self.query_one("#image-banner", Label).update(info.full_clean_ref)
 
-            # Staged update alert
-            if info.image_staged:
-                self.query_one("#staged-banner", Label).add_class("visible")
+                # Staged update alert
+                if info.image_staged:
+                    self.query_one("#staged-banner", Label).add_class("visible")
 
-            # Signed
-            signed_txt = "🔒 Yes — cosign verified" if info.image_signed else "🔓 No"
-            self.query_one("#img-signed",  AdwPropertyRow).update_value(signed_txt)
+                # Signed
+                signed_txt = "🔒 Yes — cosign verified" if info.image_signed else "🔓 No"
+                self.query_one("#img-signed",  AdwPropertyRow).update_value(signed_txt)
 
-            # Channel / stream
-            stream = info.image_tag or "unknown"
-            self.query_one("#img-channel", AdwPropertyRow).update_value(stream)
+                # Channel / stream
+                stream = info.image_tag or "unknown"
+                self.query_one("#img-channel", AdwPropertyRow).update_value(stream)
 
-            # Compression — async network call; start as separate worker
-            if info.clean_image_ref:
-                self.run_worker(self._load_compression(info.full_clean_ref), exclusive=False)
+                # Compression — async network call; start as separate worker
+                if info.clean_image_ref:
+                    self.run_worker(self._load_compression(info.full_clean_ref), exclusive=False)
 
-        except Exception:  # noqa: BLE001
-            self.query_one("#image-banner", Label).update("Image info unavailable")
-            self.query_one("#img-signed",   AdwPropertyRow).update_value("unavailable")
+            except Exception:  # noqa: BLE001
+                self.query_one("#image-banner", Label).update("Image info unavailable")
+                self.query_one("#img-signed",   AdwPropertyRow).update_value("unavailable")
 
         # ── last updated from bootc status ────────────────────────────────────
         with contextlib.suppress(Exception):

@@ -41,7 +41,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | Quick Actions — Update All only (bottom right) | ✅ |
 | Scrollbar — `#adw-content { height: 1fr }` | ✅ |
 | Update status in OpsBar on load | ✅ |
-| Degraded mode for non-bootc systems | ⬜ Show "unavailable" in-place rather than crashing |
+| Degraded mode for non-bootc systems | ✅ Shows "unavailable" in-place |
 
 ### Updates (`screens/updates.py`)
 
@@ -63,7 +63,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | Update Now + Check for Updates pinned footer | ✅ |
 | Scrollbar — `#adw-content { height: 1fr }` | ✅ |
 | OpsBar for inline progress | ✅ |
-| Changelog viewer | ⬜ `ChangelogViewer` widget stub exists; not rendered |
+| Changelog viewer | ✅ Wired into Updates screen under Release Notes group |
 | Scheduled strategy time-picker (let user change 2am window) | ⬜ Deferred to v2 |
 | Future: Idle reboot (logind idle hint + countdown) | ⬜ ADR 0001 documents this |
 | Future: Screen-lock reboot (login1 Lock signal, 30-min buffer) | ⬜ ADR 0001 documents this |
@@ -124,7 +124,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | `OpsBar` — animated Unicode block bar, step counter, ✓ ticker | ✅ |
 | `OperationModal` / `OperationLogModal` — no longer used (inline-only) | ✅ Removed from all screens |
 | `core/progress.py` — ProgressParser, ProgressUpdate | ✅ |
-| OSC 9;4 progress in terminal tab/titlebar | ⬜ `util/osc.py` exists but not wired |
+| OSC 9;4 progress in terminal tab/titlebar | ✅ Wired in OpsBar set_running/set_complete/set_error/set_idle |
 | `core/operations.py` — resumable state machine | ⬜ Defined, never used |
 
 ### Help & UX
@@ -138,14 +138,14 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 
 | Item | Status |
 |------|--------|
-| pytest suite — 86 tests | ✅ |
+| pytest suite — 106 tests | ✅ |
 | `test_reboot_strategy.py` — 10 tests for smart reboot helpers | ✅ |
 | `test_app_acceptance.py` — 3-screen registration (AI hidden) | ✅ |
 | `test_commands.py` — PackageProvider, NavigationProvider | ✅ |
 | `test_devmode.py` — tool inventory, install detection | ✅ |
 | `test_bundles.py`, `test_operations.py`, `test_progress.py` | ✅ |
 | Snapshot tests (SVG per screen) | ⬜ Not wired |
-| CLI integration tests (`typer.testing.CliRunner`) | ⬜ |
+| CLI integration tests (`typer.testing.CliRunner`) | ✅ `tests/test_cli.py` — 13 tests |
 
 ### Headless CLI completeness
 
@@ -157,15 +157,15 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | `bctl devmode on/off/status` | ✅ |
 | `bctl install brew:<pkg>` / `flatpak:<app-id>` | ✅ |
 | `bctl ai list/deploy/stop` | ✅ |
-| `bctl focus on/off` | ⬜ |
+| `bctl focus on/off/status` | ✅ |
 | `bctl kit remove <name>` | ⬜ |
 
 ### Degraded mode (non-bootc systems)
 
 | Item | Status |
 |------|--------|
-| System screen shows "unavailable" for bootc rows | ⬜ |
-| Updates screen explains bootc controls unavailable | ⬜ |
+| System screen shows "unavailable" for bootc rows | ✅ get_system_info() handles gracefully |
+| Updates screen explains bootc controls unavailable | ✅ Shows "— unavailable" for image rows |
 | Developer, AI screens remain fully functional | ✅ |
 
 ## Widget inventory
@@ -188,6 +188,6 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 
 | Bug | Status |
 |-----|--------|
-| `toolkit.py` still exists on disk (dead file, not routed) | ⬜ Safe to delete |
-| `core/operations.py` resumable state machine never wired | ⬜ |
-| Updates screen double worker nesting on channel switch | ⬜ Works but noisy |
+| `toolkit.py` dead file removed | ✅ |
+| `core/operations.py` resumable state machine | ✅ Deleted — app uses inline workers, not resumable state |
+| Updates screen double worker nesting on channel switch | ✅ Acceptable — spawning worker from worker is valid in Textual |

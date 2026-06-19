@@ -1,0 +1,129 @@
+"""CLI integration tests — exercises every subcommand via CliRunner."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from typer.testing import CliRunner
+
+from bluefinctl.cli import app
+
+runner = CliRunner()
+
+
+class TestStatusCommand:
+    def test_status_runs(self) -> None:
+        with patch("bluefinctl.core.system.print_status") as mock:
+            result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        mock.assert_called_once()
+
+
+class TestUpdateCommand:
+    def test_update_check_flag_up_to_date(self) -> None:
+        mock_info = MagicMock()
+        mock_info.ref = "ghcr.io/projectbluefin/dakota:latest"
+        with (
+            patch("bluefinctl.core.update_runner.get_image_info", return_value=mock_info),
+            patch("bluefinctl.core.update_runner.check_for_update", return_value=False),
+            patch("bluefinctl.core.update_runner.get_autoupdate_containers", return_value=[]),
+        ):
+            result = runner.invoke(app, ["update", "--check"])
+        assert result.exit_code == 0
+
+    def test_update_check_flag_available(self) -> None:
+        mock_info = MagicMock()
+        mock_info.ref = "ghcr.io/projectbluefin/dakota:latest"
+        with (
+            patch("bluefinctl.core.update_runner.get_image_info", return_value=mock_info),
+            patch("bluefinctl.core.update_runner.check_for_update", return_value=True),
+            patch("bluefinctl.core.update_runner.get_autoupdate_containers", return_value=[]),
+        ):
+            result = runner.invoke(app, ["update", "--check"])
+        assert result.exit_code == 0
+
+
+class TestFocusCommand:
+    def test_focus_status_off(self) -> None:
+        mock_status = MagicMock()
+        mock_status.focus_mode = None
+        with patch(
+                "bluefinctl.core.updates.get_update_status",
+                new=AsyncMock(return_value=mock_status)
+            ):
+            result = runner.invoke(app, ["focus", "status"])
+        assert result.exit_code == 0
+        assert "off" in result.output.lower()
+
+    def test_focus_status_active(self) -> None:
+        mock_focus = MagicMock()
+        mock_focus.active = True
+        mock_focus.activated_at = "2026-06-01T10:00:00"
+        mock_focus.is_stale = False
+        mock_status = MagicMock()
+        mock_status.focus_mode = mock_focus
+        with patch(
+                "bluefinctl.core.updates.get_update_status",
+                new=AsyncMock(return_value=mock_status)
+            ):
+            result = runner.invoke(app, ["focus", "status"])
+        assert result.exit_code == 0
+        assert "active" in result.output.lower()
+
+    def test_focus_on(self) -> None:
+        with patch("bluefinctl.core.updates.activate_focus_mode", new=AsyncMock()):
+            result = runner.invoke(app, ["focus", "on"])
+        assert result.exit_code == 0
+        assert "active" in result.output.lower()
+
+    def test_focus_off(self) -> None:
+        with patch("bluefinctl.core.updates.deactivate_focus_mode", new=AsyncMock()):
+            result = runner.invoke(app, ["focus", "off"])
+        assert result.exit_code == 0
+        assert "deactivated" in result.output.lower()
+
+    def test_focus_unknown_action(self) -> None:
+        result = runner.invoke(app, ["focus", "maybe"])
+        assert result.exit_code == 1
+
+
+class TestKitCommand:
+    def test_kit_list(self) -> None:
+        mock_bundle = MagicMock()
+        mock_bundle.name = "dx"
+        mock_bundle.state.value = "active"
+        mock_bundle.installed_count = 3
+        mock_bundle.total_count = 5
+        with patch(
+                "bluefinctl.core.bundles.get_bundles",
+                new=AsyncMock(return_value=[mock_bundle])
+            ):
+            result = runner.invoke(app, ["kit", "list"])
+        assert result.exit_code == 0
+        assert "dx" in result.output
+
+
+class TestInstallCommand:
+    def test_install_brew(self) -> None:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+            result = runner.invoke(app, ["install", "brew:ripgrep"])
+        assert result.exit_code == 0
+        assert any("ripgrep" in str(a) for a in mock_run.call_args[0])
+
+    def test_install_unknown_source(self) -> None:
+        result = runner.invoke(app, ["install", "apt:curl"])
+        assert result.exit_code == 1
+
+    def test_install_missing_name(self) -> None:
+        result = runner.invoke(app, ["install", "brew:"])
+        assert result.exit_code == 1
+
+
+class TestDevmodeCommand:
+    def test_devmode_launches_tui(self) -> None:
+        """devmode subcommand creates app with start_screen='devmode'."""
+        with patch("bluefinctl.app.BluefinCtl") as mock_app:
+            mock_app.return_value.run = MagicMock()
+            result = runner.invoke(app, ["devmode"])
+        assert result.exit_code == 0
+        mock_app.assert_called_once_with(start_screen="devmode")

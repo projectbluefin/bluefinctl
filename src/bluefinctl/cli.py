@@ -227,3 +227,40 @@ def ai(
             raise typer.Exit(1)
     else:
         typer.echo("Usage: bluefinctl ai list | ai deploy <stack> | ai stop <stack>")
+
+
+@app.command()
+def focus(
+    action: str = typer.Argument("status", help="on / off / status"),
+) -> None:
+    """Activate or deactivate focus mode (pauses automatic updates)."""
+    import asyncio
+
+    from rich.console import Console
+
+    from bluefinctl.core.updates import (
+        activate_focus_mode,
+        deactivate_focus_mode,
+        get_update_status,
+    )
+
+    console = Console()
+
+    if action == "on":
+        asyncio.run(activate_focus_mode())
+        console.print("[yellow]Focus mode active[/yellow] — automatic updates paused.")
+    elif action == "off":
+        asyncio.run(deactivate_focus_mode())
+        console.print("[green]Focus mode deactivated[/green] — updates will resume on schedule.")
+    elif action == "status":
+        status = asyncio.run(get_update_status())
+        if status.focus_mode and status.focus_mode.active:
+            since = status.focus_mode.activated_at or "unknown"
+            console.print(f"[yellow]Focus mode ACTIVE[/yellow] since {since}")
+            if status.focus_mode.is_stale:
+                console.print("[dim]Warning: focus mode has been active > 7 days[/dim]")
+        else:
+            console.print("[green]Focus mode OFF[/green] — updates running normally.")
+    else:
+        typer.echo(f"Unknown action '{action}'. Use: on / off / status", err=True)
+        raise typer.Exit(1)
