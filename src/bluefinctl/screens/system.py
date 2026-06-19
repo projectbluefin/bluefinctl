@@ -23,6 +23,14 @@ from bluefinctl.widgets.ops_bar import OpsBar
 from bluefinctl.widgets.rollback_calendar import RollbackCalendar
 
 
+def _last_line(stderr: bytes | None) -> str:
+    """Return the last non-empty line of stderr for compact error display."""
+    if not stderr:
+        return ""
+    lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
 class SystemScreen(Screen[None]):
     """System overview — the home screen for bootc systems."""
 
@@ -235,13 +243,14 @@ class SystemScreen(Screen[None]):
             proc = await asyncio.create_subprocess_exec(
                 "pkexec", "/usr/bin/uupd",
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            await proc.wait()
+            _, stderr = await proc.communicate()
             if proc.returncode == 0:
                 ops.set_idle("✓  Update complete")
             else:
-                ops.set_idle(f"✗  Update failed (exit {proc.returncode})")
+                err = _last_line(stderr)
+                ops.set_idle(f"✗  Update failed — {err or f'exit {proc.returncode}'}")
         except Exception as e:  # noqa: BLE001
             ops.set_idle(f"✗  {e}")
 
@@ -259,13 +268,14 @@ class SystemScreen(Screen[None]):
             proc   = await asyncio.create_subprocess_exec(
                 "pkexec", "bootc", "switch", target,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            await proc.wait()
+            _, stderr = await proc.communicate()
             if proc.returncode == 0:
                 ops.set_idle(f"✓  Switched to {channel} — reboot to apply")
                 return
-            raise RuntimeError(f"bootc switch exited {proc.returncode}")
+            err = _last_line(stderr)
+            raise RuntimeError(err or f"bootc switch exited {proc.returncode}")
         except Exception as e:  # noqa: BLE001
             ops.set_idle(f"✗  {e}")
             # Revert toggle to actual state
@@ -294,13 +304,14 @@ class SystemScreen(Screen[None]):
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            await proc.wait()
+            _, stderr = await proc.communicate()
             if proc.returncode == 0:
                 ops.set_idle("✓  Rollback staged — reboot to apply")
             else:
-                ops.set_idle(f"✗  Rollback failed (exit {proc.returncode})")
+                err = _last_line(stderr)
+                ops.set_idle(f"✗  Rollback failed — {err or f'exit {proc.returncode}'}")
         except Exception as e:  # noqa: BLE001
             ops.set_idle(f"✗  {e}")
 

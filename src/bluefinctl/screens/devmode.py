@@ -47,8 +47,8 @@ class DevModeScreen(Screen[None]):
             yield AdwPreferencesGroup(
                 "Developer Mode",
                 AdwSwitchRow(
-                    "Enable Developer Mode",
-                    subtitle="Adds you to docker, mock, lxd groups — reboot required to apply",
+                    "Developer Mode",
+                    subtitle="Add to docker, mock, lxd groups — reboot required",
                     id="devmode-switch",
                 ),
                 classes="devmode-top-group",
@@ -152,8 +152,6 @@ class DevModeScreen(Screen[None]):
 
     async def _load_devmode_state(self) -> None:
         """Read current devmode state and set the switch without firing Changed."""
-        import asyncio
-
         from bluefinctl.core.devmode import _check_devmode_active
         loop = asyncio.get_running_loop()
         state = await loop.run_in_executor(None, _check_devmode_active)
