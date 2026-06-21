@@ -12,6 +12,7 @@ metadata:
   context7-sources:
     - /textualize/textual
     - /tiangolo/typer
+    - /bootc-dev/bootc
     - /gnome/libadwaita
     - /websites/developer_gnome
 ---
@@ -493,7 +494,7 @@ Add custom fields to tasks via kwargs (e.g., `detail=`) — reference them in `T
 
 ## bootc --progress-fd JSON schema
 
-`sudo bootc upgrade --quiet --progress-fd N` writes JSON lines to fd N:
+`sudo bootc upgrade --progress-fd N` writes JSON lines to fd N:
 
 ```json
 {"type": "ProgressSteps", "task": "pulling", "steps": 12, "stepsTotal": 23, "bytes": 0, "bytesTotal": 0}
@@ -502,12 +503,12 @@ Add custom fields to tasks via kwargs (e.g., `detail=`) — reference them in `T
 
 Stage → OSC% mapping (mirrors uupd): `pulling` 0–80%, `importing` 80–90%, `staging` 90–100%.
 
-Use `os.pipe()` + `pass_fds=(w_fd,)` to pass the write fd to the subprocess. `sudo` preserves non-tty file descriptors by default — this works.
+Use `os.pipe()` + `pass_fds=(w_fd,)` to pass the write fd to the subprocess. `sudo` preserves non-tty file descriptors by default — this works. Do **not** add `--quiet`: it suppresses visible bootc progress, so `bctl update` must keep normal stderr output available and optionally parse it with `BootcSwitchParser` as a fallback.
 
 ```python
 r_fd, w_fd = os.pipe()
 proc = await asyncio.create_subprocess_exec(
-    "sudo", "bootc", "upgrade", "--quiet", "--progress-fd", str(w_fd),
+    "sudo", "bootc", "upgrade", "--progress-fd", str(w_fd),
     pass_fds=(w_fd,),
 )
 os.close(w_fd)  # parent closes write end
@@ -516,7 +517,7 @@ os.close(w_fd)  # parent closes write end
 
 ## Full-update stage order (bctl update)
 
-1. `sudo bootc upgrade --quiet --progress-fd N` — sequential (needs root, large, first)
+1. `sudo bootc upgrade --progress-fd N` — sequential (needs root, large, first)
 2. Parallel via `asyncio.gather()`: `flatpak update -y --noninteractive`, `brew update && brew upgrade`, `distrobox upgrade -a`
 
 All runners live in `core/update_runner.py`. Display lives in the `update` command in `cli.py`.

@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from bluefinctl.core.update_runner import (
     BootcEvent,
     ImageInfo,
     get_image_info,
+    run_bootc_upgrade,
     run_brew_update,
     run_distrobox_update,
     run_flatpak_update,
@@ -188,3 +191,38 @@ class TestBootcEvent:
         assert ev.bytes_ == 0
         assert ev.bytes_total == 0
         assert ev.description == ""
+        assert ev.percent is None
+
+
+class _AsyncLineStream:
+    def __init__(self, *lines: bytes) -> None:
+        self._lines = lines
+
+    def __aiter__(self) -> _AsyncLineStream:
+        return self
+
+    async def __anext__(self) -> bytes:
+        if not self._lines:
+            raise StopAsyncIteration
+        line, *rest = self._lines
+        self._lines = tuple(rest)
+        return line
+
+
+class TestRunBootcUpgrade:
+    @pytest.mark.asyncio
+    async def test_uses_stderr_progress_without_quiet(self) -> None:
+        mock_proc = AsyncMock()
+        mock_proc.stderr = _AsyncLineStream(b"Importing: 45% (120/267 MB)\n")
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock(return_value=0)
+
+        with patch(
+            "bluefinctl.core.update_runner.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ) as create_exec:
+            events = [event async for event in run_bootc_upgrade()]
+
+        args = create_exec.call_args.args
+        assert "--quiet" not in args
+        assert any(event.percent == 45.0 for event in events)

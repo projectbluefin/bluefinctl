@@ -52,3 +52,34 @@ async def test_run_update_cli_bootc_failure() -> None:
         result = await run_update_cli(accent_hex="#6f8396", has_containers=False)
 
     assert result == "failed"
+
+
+@pytest.mark.asyncio
+async def test_run_update_cli_accepts_text_progress_fallback() -> None:
+    async def _text_bootc() -> AsyncIterator[BootcEvent]:
+        yield BootcEvent(
+            type="ProgressText",
+            task="",
+            description="Importing image layers...",
+            percent=45.0,
+        )
+
+    with (
+        patch(
+            "bluefinctl.core.update_runner.run_bootc_upgrade",
+            return_value=_text_bootc(),
+        ),
+        patch(
+            "bluefinctl.core.update_runner.run_flatpak_update",
+            new_callable=AsyncMock,
+            return_value=(True, "already up to date"),
+        ),
+        patch(
+            "bluefinctl.core.update_runner.run_brew_update",
+            new_callable=AsyncMock,
+            return_value=(True, "already up to date"),
+        ),
+    ):
+        result = await run_update_cli(accent_hex="#6f8396", has_containers=False)
+
+    assert result == "done"
