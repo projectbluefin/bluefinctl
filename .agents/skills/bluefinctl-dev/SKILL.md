@@ -515,6 +515,48 @@ os.close(w_fd)  # parent closes write end
 # wrap r_fd with loop.connect_read_pipe() for async reads
 ```
 
+### Dual-stream async queue pattern
+
+`BootcEvent` has a `percent: float | None` field populated from `BootcSwitchParser` when JSON progress is absent. The runner reads both the JSON pipe and stderr concurrently and funnels them through a single `asyncio.Queue`. This avoids blocking either stream:
+
+```python
+progress_done = object()
+stderr_done = object()
+queue: asyncio.Queue[object] = asyncio.Queue()
+saw_json_progress = False
+
+async def _read_progress_pipe() -> None:
+    nonlocal saw_json_progress
+    async for raw_line in reader:
+        ...
+        saw_json_progress = True
+        await queue.put(BootcEvent(...))
+    await queue.put(progress_done)
+
+async def _read_stderr() -> None:
+    async for raw_line in proc.stderr:
+        if saw_json_progress:
+            continue  # JSON wins; discard text fallback
+        update = parser.parse_line(line)
+        if update:
+            await queue.put(BootcEvent(percent=update.percent, description=update.message))
+    await queue.put(stderr_done)
+
+asyncio.create_task(_read_progress_pipe())
+asyncio.create_task(_read_stderr())
+completed = 0
+while completed < 2:
+    item = await queue.get()
+    if item is progress_done or item is stderr_done:
+        completed += 1
+    elif isinstance(item, BootcEvent):
+        yield item
+```
+
+**Why not two separate `async for` loops?** Awaiting one blocks the other. The queue is the only correct pattern when two async streams must be consumed concurrently inside an async generator.
+
+After the loop: check `proc.returncode != 0` and raise `RuntimeError` with `last_bootc_line` as detail — gives the user the actual bootc error message.
+
 ## Full-update stage order (bctl update)
 
 1. `sudo bootc upgrade --progress-fd N` — sequential (needs root, large, first)
@@ -538,7 +580,7 @@ class KitsTab(Static):
 
 
 
-- [ ] `pytest` passing (97 tests)
+- [ ] `pytest` passing (112 tests)
 - [ ] `ruff check src/ tests/` clean
 - [ ] `mypy src/` clean (strict)
 - [ ] `ghostty -e bctl &` launched and affected screen visible/functional

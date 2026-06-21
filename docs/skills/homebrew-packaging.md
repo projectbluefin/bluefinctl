@@ -100,22 +100,38 @@ On every `v*` tag push to `projectbluefin/bluefinctl`, the workflow:
 4. Clones `homebrew-bluefinctl`, patches `url`, `sha256`, `version` with `sed`
 5. Commits and pushes to `homebrew-bluefinctl` main
 
-**Critical:** The workflow clones `homebrew-bluefinctl` via HTTPS with
-`x-access-token:${GH_TOKEN}` — `GITHUB_TOKEN` must have write access to the
-tap repo. This works when both repos are in the same org (`projectbluefin`).
+**Critical:** The workflow uses a **GitHub App token** (mergeraptor) — not `GITHUB_TOKEN` — to push to `homebrew-bluefinctl`. `GITHUB_TOKEN` is scoped to the triggering repo and cannot write to a different repo. The mergeraptor app must be installed on `homebrew-bluefinctl` with write permission.
 
 ```yaml
+- name: Generate mergeraptor app token
+  id: app-token
+  uses: actions/create-github-app-token@<pinned-sha> # v3
+  with:
+    app-id: ${{ vars.MERGERAPTOR_APP_ID }}
+    private-key: ${{ secrets.MERGERAPTOR_PRIVATE_KEY }}
+    repositories: homebrew-bluefinctl
+
 - name: Update Homebrew tap formula
   env:
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GH_TOKEN: ${{ steps.app-token.outputs.token }}
+    TAG: ${{ github.ref_name }}
+    SHA256: ${{ steps.sha.outputs.sha256 }}
+    FILENAME: ${{ steps.sha.outputs.filename }}
   run: |
+    VERSION="${TAG#v}"
+    URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${FILENAME}"
     git clone https://x-access-token:${GH_TOKEN}@github.com/projectbluefin/homebrew-bluefinctl.git tap
     sed -i \
       -e "s|url \".*\"|url \"${URL}\"|" \
       -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
       -e "s|version \".*\"|version \"${VERSION}\"|" \
       tap/bluefinctl.rb
-    cd tap && git add bluefinctl.rb && git commit -m "chore: update bluefinctl to ${TAG}" && git push
+    cd tap
+    git config user.name "mergeraptor[bot]"
+    git config user.email "mergeraptor[bot]@users.noreply.github.com"
+    git add bluefinctl.rb
+    git commit -m "chore: update bluefinctl to ${TAG}" || echo "no changes"
+    git push
 ```
 
 ### 5. Cutting a release
@@ -147,6 +163,7 @@ and the formula version must match.
 - `brew install` returns 404 — formula URL points to wrong repo or release assets not uploaded yet
 - Formula `version` doesn't match `pyproject.toml` version — tagging happened before version bump
 - `brew install user/repo/formula` in docs — always use the three-step trust + tap + install instead
+- Release workflow uses `secrets.GITHUB_TOKEN` for tap push — `GITHUB_TOKEN` is scoped to the source repo; use the mergeraptor GitHub App token (`vars.MERGERAPTOR_APP_ID` + `secrets.MERGERAPTOR_PRIVATE_KEY`) instead
 
 ## Verification
 
