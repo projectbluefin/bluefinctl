@@ -406,6 +406,11 @@ class UpdatesScreen(Screen[None]):
                     mib = event.bytes_ / (1024 * 1024)
                     mib_t = event.bytes_total / (1024 * 1024)
                     ops.set_running(f"{stage}  {mib:.0f}/{mib_t:.0f} MiB…")
+                elif event.percent is not None:
+                    osc_progress(int(event.percent))
+                    ops.set_running(event.description or "Updating system image…")
+                    if event.description:
+                        set_terminal_title(f"bluefinctl · {event.description}")
         except Exception as exc:  # noqa: BLE001
             self._set_idle(f"✗  bootc failed — {exc}")
             osc_progress_clear()

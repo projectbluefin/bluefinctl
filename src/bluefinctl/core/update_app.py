@@ -152,6 +152,17 @@ async def run_update_cli(*, accent_hex: str, has_containers: bool) -> str:
                         completed=event.steps,
                         stat=stat,
                     )
+                elif event.percent is not None:
+                    pct = max(0.0, min(event.percent, 100.0))
+                    progress.update(
+                        bootc_id,
+                        total=100,
+                        completed=pct,
+                        stat=event.description or "Working…",
+                    )
+                    osc_progress(int(pct))
+                    if event.description:
+                        set_terminal_title(f"bctl update · {event.description}")
 
         except Exception:  # noqa: BLE001
             bootc_ok = False

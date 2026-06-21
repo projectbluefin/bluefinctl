@@ -30,6 +30,8 @@ import subprocess
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
+from bluefinctl.core.progress import BootcSwitchParser
+
 # ── Data types ────────────────────────────────────────────────────────────────
 
 @dataclass(slots=True)
@@ -43,6 +45,7 @@ class BootcEvent:
     steps_total: int = 0
     bytes_: int = 0
     bytes_total: int = 0
+    percent: float | None = None
 
 
 @dataclass(slots=True)
@@ -96,19 +99,21 @@ def check_for_update() -> bool:
 # ── Stage runners ─────────────────────────────────────────────────────────────
 
 async def run_bootc_upgrade() -> AsyncIterator[BootcEvent]:
-    """Run ``sudo bootc upgrade --quiet --progress-fd N``.
+    """Run ``sudo bootc upgrade --progress-fd N``.
 
-    Yields :class:`BootcEvent` objects as JSON lines arrive on the progress pipe.
-    Falls back silently to an empty iterator if the pipe or subprocess fails.
+    Yields :class:`BootcEvent` objects from the JSON progress pipe when available.
+    If bootc only emits human-readable stderr progress, parse it with
+    :class:`BootcSwitchParser` so ``bctl update`` still shows live progress.
     """
     r_fd, w_fd = os.pipe()
+    parser = BootcSwitchParser()
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "bootc", "upgrade", "--quiet",
+            "sudo", "bootc", "upgrade",
             "--progress-fd", str(w_fd),
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             pass_fds=(w_fd,),
         )
     except Exception:
@@ -126,14 +131,26 @@ async def run_bootc_upgrade() -> AsyncIterator[BootcEvent]:
     r_file = os.fdopen(r_fd, "rb", buffering=0)
     transport, _ = await loop.connect_read_pipe(lambda: protocol, r_file)
 
-    try:
-        async for raw_line in reader:
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                yield BootcEvent(
+    progress_done = object()
+    stderr_done = object()
+    queue: asyncio.Queue[object] = asyncio.Queue()
+    saw_json_progress = False
+    last_bootc_line = ""
+
+    async def _read_progress_pipe() -> None:
+        nonlocal saw_json_progress
+        try:
+            async for raw_line in reader:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+                saw_json_progress = True
+                await queue.put(BootcEvent(
                     type=data.get("type", ""),
                     task=data.get("task", "").lower(),
                     description=data.get("description", ""),
@@ -141,12 +158,56 @@ async def run_bootc_upgrade() -> AsyncIterator[BootcEvent]:
                     steps_total=data.get("stepsTotal", 0),
                     bytes_=data.get("bytes", 0),
                     bytes_total=data.get("bytesTotal", 0),
-                )
-            except (json.JSONDecodeError, KeyError):
-                pass
+                ))
+        finally:
+            await queue.put(progress_done)
+
+    async def _read_stderr() -> None:
+        nonlocal last_bootc_line
+        try:
+            if proc.stderr is None:
+                return
+            async for raw_line in proc.stderr:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                last_bootc_line = line
+                if saw_json_progress:
+                    continue
+
+                update = parser.parse_line(line)
+                if update is None:
+                    continue
+                await queue.put(BootcEvent(
+                    type="ProgressText",
+                    task="",
+                    description=update.message,
+                    percent=update.percent,
+                ))
+        finally:
+            await queue.put(stderr_done)
+
+    try:
+        progress_task = asyncio.create_task(_read_progress_pipe())
+        stderr_task = asyncio.create_task(_read_stderr())
+        completed_streams = 0
+
+        while completed_streams < 2:
+            item = await queue.get()
+            if item is progress_done or item is stderr_done:
+                completed_streams += 1
+                continue
+            if isinstance(item, BootcEvent):
+                yield item
     finally:
         transport.close()
+        r_file.close()
+        await asyncio.gather(progress_task, stderr_task, return_exceptions=True)
         await proc.wait()
+
+    if proc.returncode != 0:
+        detail = last_bootc_line or f"exit status {proc.returncode}"
+        raise RuntimeError(f"bootc upgrade failed: {detail}")
 
 
 async def run_flatpak_update() -> tuple[bool, str]:

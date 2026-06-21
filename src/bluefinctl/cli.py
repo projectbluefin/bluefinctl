@@ -258,7 +258,7 @@ def changelogs() -> None:
                 content = json.loads(r.read()).get("body", "")
         except urllib.error.URLError as e:
             typer.echo(f"Error fetching changelog: {e}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     if shutil.which("glow"):
         proc = subprocess.Popen(["glow", "-p"], stdin=subprocess.PIPE)
@@ -367,7 +367,9 @@ def setup_vms() -> None:
         check=True,
     )
     subprocess.run(["/usr/libexec/ensure-libvirt-session-config"])
-    typer.echo("VM stack ready. Supports: Linux/Windows VMs, Windows 11 (UEFI + TPM), USB passthrough.")
+    typer.echo(
+        "VM stack ready. Supports: Linux/Windows VMs, Windows 11 (UEFI + TPM), USB passthrough."
+    )
 
 
 @app.command(name="toggle-vms")
@@ -398,5 +400,6 @@ def toggle_vms() -> None:
 @app.command(name="bluefin-cli")
 def bluefin_cli() -> None:
     """Configure the Bluefin-CLI terminal experience (ublue-bling toggle)."""
-    import os
-    os.execvp("ublue-bling", ["ublue-bling"])
+    import os  # noqa: PLC0415
+
+    os.execvp("ublue-bling", ["ublue-bling"])  # noqa: S606
