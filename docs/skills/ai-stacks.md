@@ -39,7 +39,8 @@ AMD is identical to NVIDIA: kernel driver on host, full ROCm userspace in contai
 
 **render group**: `/dev/dri/renderD128` is owned by `root:render`. The deploy preflight
 checks group membership via `grp.getgrnam("render")` and runs `pkexec usermod -aG render`
-automatically if needed. This is transparent to the user and fits inside OperationModal.
+automatically if needed. The change is effective on next login — the current session does
+not gain the group membership immediately, so the deploy may still fail for the current session.
 
 ## Bundled stack catalog
 
@@ -133,7 +134,7 @@ class AIStack:
 AMD Radeon RX 7900 XTX  24 GB  kfd: ok  render: ok  ROCm 7.2.4
 ```
 
-If render group is missing: `render: [!] not in group` — fixed automatically at deploy time.
+If render group is missing: `render: [!] not in group` — preflight adds the user at deploy time, effective on next login.
 
 ## Stack lifecycle (toggle model)
 
