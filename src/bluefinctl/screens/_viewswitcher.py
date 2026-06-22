@@ -15,11 +15,13 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static
 
-# AI screen is registered in the app but excluded from the nav for 1.0.
+# AI screen is now included in the nav.
 NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("system",  "System",    "1"),
     ("updates", "Updates",   "2"),
-    ("devmode", "Developer", "3"),
+    ("toolkit", "Toolkit",   "3"),
+    ("devmode", "Developer", "4"),
+    ("ai",      "AI",        "5"),
 )
 
 

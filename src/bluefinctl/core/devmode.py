@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -20,6 +21,41 @@ class DevmodeState:
 
     active: bool = False
     groups: list[str] | None = None
+
+
+@dataclass
+class LimaStatus:
+    """Lima VM status from limactl."""
+
+    installed: bool
+    vm_count: int
+    running_count: int
+    summary: str
+
+
+def get_lima_status() -> LimaStatus:
+    """Return Lima installation and VM status via limactl list --json."""
+    if not shutil.which("limactl"):
+        return LimaStatus(installed=False, vm_count=0, running_count=0, summary="not installed")
+    try:
+        result = subprocess.run(
+            ["limactl", "list", "--json"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return LimaStatus(installed=True, vm_count=0, running_count=0, summary="no VMs")
+        vms = [json.loads(line) for line in result.stdout.strip().splitlines() if line.strip()]
+        running = sum(1 for v in vms if v.get("status") == "Running")
+        count = len(vms)
+        if count == 0:
+            summary = "installed, no VMs"
+        elif running > 0:
+            summary = f"{count} VM{'s' if count > 1 else ''} ({running} running)"
+        else:
+            summary = f"{count} VM{'s' if count > 1 else ''} (stopped)"
+        return LimaStatus(installed=True, vm_count=count, running_count=running, summary=summary)
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
+        return LimaStatus(installed=True, vm_count=0, running_count=0, summary="error")
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Button
+from textual.widgets import Button, Footer
 
 from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
@@ -39,6 +39,7 @@ class DevModeScreen(Screen[None]):
     .devmode-top-group { margin: 0 2 1 2; }
     DevModeScreen AdwActionRow { height: 2; }
     DevModeScreen AdwActionRow > .adw-row-content > .adw-row-subtitle { overflow-x: hidden; }
+    DevModeScreen Footer { dock: none; height: 1; background: $panel; }
     """
 
     def compose(self) -> ComposeResult:
@@ -142,9 +143,8 @@ class DevModeScreen(Screen[None]):
                         ),
                     )
 
+        yield Footer()
         yield OpsBar()
-
-    # ── Mount ─────────────────────────────────────────────────────────────────
 
     def on_mount(self) -> None:
         self.run_worker(self._load_devmode_state(), exclusive=False)
@@ -226,6 +226,7 @@ class DevModeScreen(Screen[None]):
     async def _detect_installed(self) -> None:
         """Check install state for all tools and update button labels."""
         from bluefinctl.core.devmode import (
+            get_lima_status,
             is_docker_installed,
             is_helix_installed,
             is_incus_installed,
@@ -265,6 +266,20 @@ class DevModeScreen(Screen[None]):
         for tool_id, result in zip(tool_ids, gather_results, strict=True):
             if isinstance(result, bool):
                 self._update_tool_button(tool_id, result)
+
+        # Enrich Lima row with VM count from limactl list --json
+        lima_status = await loop.run_in_executor(None, get_lima_status)
+        if lima_status.installed:
+            from textual.css.query import NoMatches
+            try:
+                lima_row = self.query_one("#tool-lima")
+                subtitle_labels = lima_row.query(".adw-row-subtitle")
+                if subtitle_labels:
+                    subtitle_labels.first().update(  # type: ignore[attr-defined]
+                        f"Lima: {lima_status.summary}. limactl shell ubuntu"
+                    )
+            except NoMatches:
+                pass
 
     # ── Button helpers ────────────────────────────────────────────────────────
 

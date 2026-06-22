@@ -20,7 +20,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Label
+from textual.widgets import Button, Footer, Label
 
 from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
@@ -39,10 +39,12 @@ class UpdatesScreen(Screen[None]):
 
     BINDINGS = [
         Binding("u", "update_now", "Update Now"),
+        Binding("f", "toggle_focus", "Focus Mode"),
     ]
 
     DEFAULT_CSS = """
     UpdatesScreen { layout: vertical; overflow: hidden hidden; }
+    UpdatesScreen Footer { dock: none; height: 1; background: $panel; }
 
     /* Full-width image banner */
     #image-banner {
@@ -173,6 +175,7 @@ class UpdatesScreen(Screen[None]):
             yield Button("Check for Updates",                id="btn-check")
             yield Button("Update Now", variant="primary",    id="btn-update-now")
 
+        yield Footer()
         yield OpsBar()
 
     def on_mount(self) -> None:
@@ -544,3 +547,19 @@ class UpdatesScreen(Screen[None]):
 
     def _set_running(self, message: str, stage: int = 0) -> None:
         self._ops().set_running(message, stage=stage)
+
+
+    async def action_toggle_focus(self) -> None:
+        """Toggle focus mode on/off."""
+        from bluefinctl.core.updates import (
+            activate_focus_mode,
+            deactivate_focus_mode,
+            get_update_status,
+        )
+        status = await get_update_status()
+        if status.focus_mode and status.focus_mode.active:
+            await deactivate_focus_mode()
+            self._set_idle("Focus mode deactivated — updates will resume")
+        else:
+            await activate_focus_mode()
+            self._set_idle("Focus mode active — automatic updates paused")

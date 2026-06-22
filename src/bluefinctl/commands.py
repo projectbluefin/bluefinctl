@@ -140,7 +140,8 @@ class NavigationProvider(Provider):
     _SCREENS = [
         ("Go to System",    "system",  "System info and health"),
         ("Go to Updates",   "updates", "Update strategy and focus mode"),
-        ("Go to Developer", "devmode", "Kits, developer tools, and environments"),
+        ("Go to Toolkit",   "toolkit", "Software kit management"),
+        ("Go to Developer", "devmode", "Developer tools and environments"),
         ("Go to AI",        "ai",      "AI stack management"),
     ]
 

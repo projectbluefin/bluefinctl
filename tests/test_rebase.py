@@ -323,25 +323,25 @@ class TestChannelTargetConstruction:
 # ViewSwitcher — AI tab removed from nav
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestAITabHidden:
-    """AI screen must be absent from the visible nav for 1.0."""
+class TestAITabVisible:
+    """AI screen is now part of the visible nav."""
 
-    def test_ai_not_in_nav_items(self) -> None:
+    def test_ai_in_nav_items(self) -> None:
         from bluefinctl.screens._viewswitcher import NAV_ITEMS  # noqa: PLC0415
         slugs = [slug for slug, *_ in NAV_ITEMS]
-        assert "ai" not in slugs, "AI tab must be hidden in 1.0 nav"
+        assert "ai" in slugs, "AI tab must be visible in the nav"
 
-    def test_nav_has_three_tabs(self) -> None:
+    def test_nav_has_five_tabs(self) -> None:
         from bluefinctl.screens._viewswitcher import NAV_ITEMS  # noqa: PLC0415
-        assert len(NAV_ITEMS) == 3
+        assert len(NAV_ITEMS) == 5
 
-    def test_nav_order_system_updates_developer(self) -> None:
+    def test_nav_order(self) -> None:
         from bluefinctl.screens._viewswitcher import NAV_ITEMS  # noqa: PLC0415
         slugs = [slug for slug, *_ in NAV_ITEMS]
-        assert slugs == ["system", "updates", "devmode"]
+        assert slugs == ["system", "updates", "toolkit", "devmode", "ai"]
 
     @pytest.mark.asyncio
-    async def test_ai_screen_still_registered_in_app(
+    async def test_ai_screen_registered_in_app(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """AI screen remains registered (screen_names includes 'ai') for programmatic use."""

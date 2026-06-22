@@ -120,6 +120,7 @@ AI_TOOLS_KIT_SLUG = "ai-tools-kit"
 _AI_BUNDLE_CATALOG_SLUG = "ai-tools"
 
 AI_TOOL_REGISTRY: tuple[AITool, ...] = (
+    # Bundle entry — triggers full bundle install when selected
     AITool(
         slug=AI_TOOLS_KIT_SLUG,
         command="",
@@ -129,6 +130,44 @@ AI_TOOL_REGISTRY: tuple[AITool, ...] = (
         installed=False,
         source=BUNDLE_AI_TOOLS_SOURCE,
     ),
+    # Coding Agents
+    AITool(
+        slug="goose",
+        command="goose",
+        name="Goose",
+        description="Block Protocol AI agent",
+        category="Coding Agents",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
+    ),
+    AITool(
+        slug="claude-code",
+        command="claude",
+        name="Claude Code",
+        description="Anthropic coding agent",
+        category="Coding Agents",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
+    ),
+    AITool(
+        slug="copilot-cli",
+        command="gh-copilot",
+        name="GitHub Copilot CLI",
+        description="GitHub Copilot in the terminal (via gh extension)",
+        category="Coding Agents",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
+    ),
+    AITool(
+        slug="aider",
+        command="aider",
+        name="Aider",
+        description="AI pair programming in the terminal",
+        category="Coding Agents",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
+    ),
+    # Local AI
     AITool(
         slug="lemonade",
         command="lemonade",
@@ -157,14 +196,33 @@ AI_TOOL_REGISTRY: tuple[AITool, ...] = (
         source=BUNDLE_AI_TOOLS_SOURCE,
     ),
     AITool(
-        slug="coding-agents",
-        command="goose",
-        name="Coding agents",
-        description="Goose, Claude Code, Aider, and other terminal agents",
-        category="Coding Agents",
+        slug="aichat",
+        command="aichat",
+        name="aichat",
+        description="AI-powered shell assistant with model routing",
+        category="Local AI",
         installed=False,
         source=BUNDLE_AI_TOOLS_SOURCE,
     ),
+    AITool(
+        slug="ramalama",
+        command="ramalama",
+        name="RamaLama",
+        description="Run AI models locally via OCI containers",
+        category="Local AI",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
+    ),
+    AITool(
+        slug="ollama",
+        command="ollama",
+        name="Ollama",
+        description="Run and manage local language models",
+        category="Local AI",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
+    ),
+    # Model Tools
     AITool(
         slug="docker-model",
         command="docker",
@@ -173,6 +231,15 @@ AI_TOOL_REGISTRY: tuple[AITool, ...] = (
         category="Model Tools",
         installed=False,
         source="external:docker-desktop",
+    ),
+    AITool(
+        slug="lm-studio",
+        command="lms",
+        name="LM Studio",
+        description="Desktop app for running local LLMs",
+        category="Model Tools",
+        installed=False,
+        source=BUNDLE_AI_TOOLS_SOURCE,
     ),
 )
 
@@ -265,12 +332,6 @@ _BUNDLE_AI_TOOLS_COMMANDS: tuple[str, ...] = tuple(
     if t.source == BUNDLE_AI_TOOLS_SOURCE and t.command and t.slug != AI_TOOLS_KIT_SLUG
 )
 
-# Commands whose presence counts as the coding-agents group being installed.
-# The coding-agents Brewfile is an aggregated bundle entry that installs multiple
-# tools (goose, claude, aider); checking any of these is sufficient to mark the
-# group as present without requiring every tool to exist on every machine.
-_CODING_AGENT_COMMANDS: tuple[str, ...] = ("goose", "claude", "aider")
-
 
 def _has_docker_model() -> bool:
     """Return True only if `docker model` sub-command is available."""
@@ -299,8 +360,6 @@ def get_ai_tools_status() -> list[AITool]:
     for tool in AI_TOOL_REGISTRY:
         if tool.slug == AI_TOOLS_KIT_SLUG:
             installed = kit_installed
-        elif tool.slug == "coding-agents":
-            installed = any(shutil.which(cmd) for cmd in _CODING_AGENT_COMMANDS)
         elif tool.slug == "docker-model":
             installed = _has_docker_model()
         elif tool.command:

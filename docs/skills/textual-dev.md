@@ -676,3 +676,5 @@ Button("Cancel", variant="default")      # neutral
 | CI fails on Python 3.12 | `requires-python = ">=3.13"` | Remove 3.12 from CI matrix |
 | Tests race (assert before handler runs) | Missing `await pilot.pause()` | Add `await pilot.pause()` after interactions |
 | `display: flex` ignored | Not a valid Textual CSS property | Use `layout: horizontal` |
+| Footer appears BELOW OpsBar | Both use `dock: bottom`; last-yielded wins | Yield `Footer()` before `OpsBar()`, override `Footer { dock: none; height: 1; }` |
+| Footer/OpsBar overlap content area | Footer still docking | Add `Footer { dock: none; height: 1; background: $panel; }` to screen DEFAULT_CSS |

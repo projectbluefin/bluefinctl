@@ -1,4 +1,4 @@
-"""Acceptance tests for the four-panel app navigation."""
+"""Acceptance tests for the five-panel app navigation."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ async def test_all_screens_installed_on_non_bootc(monkeypatch: pytest.MonkeyPatc
 
     app = BluefinCtl()
     async with app.run_test():
-        assert app.get_screen_names() == ["system", "updates", "devmode", "ai"]
+        assert app.get_screen_names() == ["system", "updates", "toolkit", "devmode", "ai"]
         assert app.is_bootc is False
         assert isinstance(app.screen, SystemScreen)
 
