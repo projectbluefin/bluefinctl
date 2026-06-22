@@ -3,7 +3,6 @@
 Supports:
 - OSC 0/2 — Terminal window/tab title
 - OSC 9;4  — Progress bar in terminal titlebar/tab (Ghostty, Ptyxis, iTerm2, WezTerm)
-- OSC 8   — Clickable hyperlinks
 """
 
 from __future__ import annotations
@@ -49,14 +48,6 @@ def osc_progress_indeterminate() -> None:
 def osc_progress_clear() -> None:
     """Clear the progress indicator."""
     osc_progress(-1)
-
-
-def osc_hyperlink(url: str, text: str) -> str:
-    """Return a string with an OSC 8 hyperlink.
-
-    Renders as clickable in supported terminals.
-    """
-    return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
 
 
 def set_terminal_title(title: str) -> None:
