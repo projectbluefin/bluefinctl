@@ -526,20 +526,44 @@ def _stack_service_name(stack: AIStack) -> str:
     return Path(stack.container_file).stem if stack.container_file else stack.slug
 
 
-def _copy_quadlets(stack: AIStack) -> int:
-    """Copy quadlet files to the user systemd directory synchronously.
+def _read_version_file(vendor: GpuVendor) -> str:
+    """Read the vendor version file bundled alongside the stacks."""
+    import importlib.resources
+    filename = "rocm-version" if vendor == GpuVendor.AMD else "ngc-month"
+    ref = importlib.resources.files("bluefinctl") / "stacks" / vendor.value / filename
+    with contextlib.suppress(OSError, TypeError):
+        return Path(str(ref)).read_text().strip()
+    return ""
 
-    Returns the number of files copied.  Uses :func:`shutil.copy2` so
-    file metadata is preserved and the write never blocks the event loop.
+
+def _copy_quadlets(stack: AIStack) -> int:
+    """Copy quadlet files to the user systemd directory, substituting version variables.
+
+    Substitutions applied before writing:
+      ${ROCM_VERSION}  → content of stacks/amd/rocm-version
+      ${NGC_MONTH}     → content of stacks/nvidia/ngc-month
+
+    Returns the number of files copied.
     """
     quadlet_dir = Path.home() / ".config" / "containers" / "systemd"
     quadlet_dir.mkdir(parents=True, exist_ok=True)
+
+    rocm_version = _read_version_file(GpuVendor.AMD)
+    ngc_month = _read_version_file(GpuVendor.NVIDIA)
+
     copied = 0
     for source_file in (stack.container_file, stack.network_file):
         if not source_file:
             continue
         src = Path(source_file)
-        shutil.copy2(src, quadlet_dir / src.name)
+        text = src.read_text()
+        if rocm_version:
+            text = text.replace("${ROCM_VERSION}", rocm_version)
+        if ngc_month:
+            text = text.replace("${NGC_MONTH}", ngc_month)
+        dest = quadlet_dir / src.name
+        dest.write_text(text)
+        shutil.copystat(src, dest)
         copied += 1
     return copied
 
