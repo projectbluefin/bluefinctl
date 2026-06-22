@@ -1,0 +1,22 @@
+[Unit]
+Description=RamaLama — OCI-native ROCm LLM server (OpenAI-compatible API :8080)
+After=network-online.target
+
+[Container]
+ContainerName=ramalama
+Image=quay.io/ramalama/ramalama:latest
+Exec=serve --port 8080 ollama://llama3.2:3b
+AddDevice=/dev/kfd
+AddDevice=/dev/dri
+PodmanArgs=--security-opt=label=disable
+PodmanArgs=--group-add=video
+Network=ramalama-network.network
+PublishPort=8080:8080
+Volume=%h/ai-workspaces/ramalama:/root/.cache/ramalama:z
+
+[Service]
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
