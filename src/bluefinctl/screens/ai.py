@@ -56,7 +56,7 @@ class GpuStatusBar(Static):
     async def _load(self) -> None:
         import asyncio
 
-        from bluefinctl.core.ai import GpuVendor, detect_gpu
+        from bluefinctl.core.ai import GpuVendor, _read_version_file, detect_gpu
         loop = asyncio.get_running_loop()
         gpu = await loop.run_in_executor(None, detect_gpu)
         if gpu.vendor == GpuVendor.NONE:
@@ -74,6 +74,9 @@ class GpuStatusBar(Static):
             parts.append(f"kfd: {'ok' if gpu.kfd_ok else '[!] missing'}")
             render_ok = _check_render_group()
             parts.append(f"render: {'ok' if render_ok else '[!] not in group'}")
+            rocm_ver = await loop.run_in_executor(None, _read_version_file, GpuVendor.AMD)
+            if rocm_ver:
+                parts.append(f"ROCm {rocm_ver}")
         self.update("  ".join(parts))
 
 
@@ -277,8 +280,8 @@ class AIScreen(Screen[None]):
     """AI workstation management — stack catalog and tools."""
 
     BINDINGS = [
-        Binding("enter", "deploy_stack", "Select"),
-        Binding("s", "stop_stack", "Stop"),
+        Binding("enter", "deploy_stack", "Deploy"),
+        Binding("s", "remove_stack", "Remove"),
         Binding("l", "stack_logs", "Logs"),
     ]
 
@@ -295,11 +298,11 @@ class AIScreen(Screen[None]):
     """
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
-        """Hide stop/log footer hints when not on the Stacks tab."""
-        if action in ("stop_stack", "stack_logs"):
+        """Hide remove/log footer hints when not on the Stacks tab."""
+        if action in ("remove_stack", "stack_logs"):
             try:
                 return self.query_one(TabbedContent).active == "tab-stacks"
-            except NoMatches:  # widget not yet mounted
+            except NoMatches:
                 return None
         return None
 
@@ -401,9 +404,10 @@ class AIScreen(Screen[None]):
             system_notify("AI", "Failed to install AI Tools kit", urgency="critical")
 
     @work(exclusive=True)
-    async def action_stop_stack(self) -> None:
-        """Stop the selected running stack."""
-        from bluefinctl.core.ai import StackStatus, stop_stack_steps
+    async def action_remove_stack(self) -> None:
+        """Remove the selected stack — stops, disables, and deletes quadlet files."""
+        from bluefinctl.core.ai import StackStatus, remove_stack_steps
+        from bluefinctl.screens._modals import ConfirmModal
         from bluefinctl.widgets.operation_modal import OperationModal
 
         tabbed = self.query_one(TabbedContent)
@@ -416,21 +420,29 @@ class AIScreen(Screen[None]):
             return
 
         stack = stacks_tab._stacks[stack_list.index]
-        if stack.status != StackStatus.RUNNING:
-            system_notify("AI", f"{stack.name} is not running", urgency="low")
+        if stack.status not in (StackStatus.RUNNING, StackStatus.STOPPED):
+            system_notify("AI", f"{stack.name} is not deployed", urgency="low")
             return
 
-        rc = await self.app.push_screen_wait(
-            OperationModal(
-                f"Stopping {stack.name}",
-                steps=stop_stack_steps(stack),
+        confirmed = await self.app.push_screen_wait(
+            ConfirmModal(
+                f"Remove {stack.name}?",
+                "Stops the service, removes quadlet files, and reloads systemd.\n"
+                "Your model files and workspace data are kept.",
             ),
         )
-        if rc == 0:
-            system_notify("AI", f"{stack.name} stopped")
-            stacks_tab.refresh_stacks()
-        else:
-            system_notify("AI", f"Failed to stop {stack.name}", urgency="critical")
+        if confirmed:
+            rc = await self.app.push_screen_wait(
+                OperationModal(
+                    f"Removing {stack.name}",
+                    steps=remove_stack_steps(stack),
+                ),
+            )
+            if rc == 0:
+                system_notify("AI", f"{stack.name} removed")
+                stacks_tab.refresh_stacks()
+            else:
+                system_notify("AI", f"Failed to remove {stack.name}", urgency="critical")
 
     @work(exclusive=True)
     async def action_stack_logs(self) -> None:

@@ -216,15 +216,6 @@ AI_TOOL_REGISTRY: tuple[AITool, ...] = (
         installed=False,
         source=BUNDLE_AI_TOOLS_SOURCE,
     ),
-    AITool(
-        slug="ollama",
-        command="ollama",
-        name="Ollama",
-        description="Run and manage local language models",
-        category="Local AI",
-        installed=False,
-        source=BUNDLE_AI_TOOLS_SOURCE,
-    ),
     # Model Tools
     AITool(
         slug="docker-model",
@@ -551,6 +542,18 @@ def _copy_quadlets(stack: AIStack) -> int:
     rocm_version = _read_version_file(GpuVendor.AMD)
     ngc_month = _read_version_file(GpuVendor.NVIDIA)
 
+    # Load stack-specific env vars (LLAMA_MODEL, VLLM_MODEL, etc.)
+    stack_env: dict[str, str] = {}
+    if stack.container_file:
+        env_file = Path(stack.container_file).parent / "stack.env"
+        with contextlib.suppress(OSError):
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                stack_env[key.strip()] = value.strip().strip('"')
+
     copied = 0
     for source_file in (stack.container_file, stack.network_file):
         if not source_file:
@@ -561,6 +564,8 @@ def _copy_quadlets(stack: AIStack) -> int:
             text = text.replace("${ROCM_VERSION}", rocm_version)
         if ngc_month:
             text = text.replace("${NGC_MONTH}", ngc_month)
+        for var, val in stack_env.items():
+            text = text.replace(f"${{{var}}}", val)
         dest = quadlet_dir / src.name
         dest.write_text(text)
         shutil.copystat(src, dest)
@@ -674,23 +679,63 @@ async def deploy_stack(stack: AIStack) -> bool:
     return True
 
 
-async def stop_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
-    """Stop a running AI stack with OperationModal progress."""
+async def remove_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
+    """Remove a deployed AI stack: stop, disable, delete quadlet files, daemon-reload."""
     service_name = _stack_service_name(stack)
-    yield ProgressUpdate(percent=0, step=1, total_steps=2, message=f"Stopping {service_name}")
-    await _run_systemctl_user("stop", service_name)
+    quadlet_dir = Path.home() / ".config" / "containers" / "systemd"
+    total_steps = 4
+
+    yield ProgressUpdate(
+        percent=0, step=1, total_steps=total_steps, message=f"Stopping {service_name}",
+    )
+    with contextlib.suppress(RuntimeError):
+        await _run_systemctl_user("stop", service_name)
+
+    yield ProgressUpdate(
+        percent=33, step=2, total_steps=total_steps, message=f"Disabling {service_name}",
+    )
+    with contextlib.suppress(RuntimeError):
+        await _run_systemctl_user("disable", service_name)
+
+    yield ProgressUpdate(
+        percent=66, step=3, total_steps=total_steps, message="Removing quadlet files",
+    )
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _remove_quadlet_files, stack, quadlet_dir)
+
+    yield ProgressUpdate(
+        percent=90, step=4, total_steps=total_steps, message="Reloading user systemd",
+    )
+    with contextlib.suppress(RuntimeError):
+        await _run_systemctl_user("daemon-reload")
+
     yield ProgressUpdate(
         percent=100,
-        step=2,
-        total_steps=2,
-        message=f"{stack.name or stack.slug} stopped",
+        step=total_steps,
+        total_steps=total_steps,
+        message=f"{stack.name or stack.slug} removed",
     )
 
 
+def _remove_quadlet_files(stack: AIStack, quadlet_dir: Path) -> None:
+    for source_file in (stack.container_file, stack.network_file):
+        if not source_file:
+            continue
+        dest = quadlet_dir / Path(source_file).name
+        with contextlib.suppress(FileNotFoundError):
+            dest.unlink()
+
+
+async def stop_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
+    """Remove a deployed AI stack (alias kept for CLI compat — delegates to remove_stack_steps)."""
+    async for update in remove_stack_steps(stack):
+        yield update
+
+
 async def stop_stack(stack: AIStack) -> bool:
-    """Stop a running AI stack."""
+    """Remove a deployed AI stack (CLI path)."""
     try:
-        async for _update in stop_stack_steps(stack):
+        async for _update in remove_stack_steps(stack):
             pass
     except (OSError, RuntimeError):
         return False
