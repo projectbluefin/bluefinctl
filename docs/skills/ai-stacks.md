@@ -15,7 +15,7 @@ metadata:
 
 - Working in `screens/ai.py` or `core/ai.py`
 - Adding a new stack to `stacks/nvidia/` or `stacks/amd/`
-- Debugging deploy / stop failures
+- Debugging deploy / remove failures
 - Extending `AI_TOOL_REGISTRY` with new tools
 - Checking GPU detection or CDI/KFD availability
 
@@ -28,12 +28,26 @@ metadata:
 
 `core/ai.py` + `screens/ai.py` + `stacks/` — GPU-accelerated AI stack management.
 
+## AMD deployment model
+
+AMD is identical to NVIDIA: kernel driver on host, full ROCm userspace in containers.
+
+- **Host**: `amdgpu` kernel module (in-tree, no DKMS), `/dev/kfd`, `/dev/dri/renderD128`
+- **Containers**: Full ROCm userspace (HIP, pytorch-rocm, etc.)
+- `rocm-smi` is NOT on the host — do not try to call it for version detection
+- ROCm version is read from `stacks/amd/rocm-version` (bundled file, updated with stack bumps)
+
+**render group**: `/dev/dri/renderD128` is owned by `root:render`. The deploy preflight
+checks group membership via `grp.getgrnam("render")` and runs `pkexec usermod -aG render`
+automatically if needed. This is transparent to the user and fits inside OperationModal.
+
 ## Bundled stack catalog
 
 ```
 stacks/
 ├── nvidia/
-│   ├── nim-llama3/          nim-llama3.container + nim-llama3-network.network + stack.env
+│   ├── ngc-month              # e.g. "25.06" — substituted as ${NGC_MONTH}
+│   ├── nim-llama3/
 │   ├── nim-sdxl/
 │   ├── pytorch-lab/
 │   ├── nemo-training/
@@ -41,26 +55,110 @@ stacks/
 │   ├── tensorflow-lab/
 │   └── rapids-ds/
 └── amd/
-    ├── lemonade/
-    ├── ollama/
-    ├── llama-strix/
-    ├── llama-vulkan/
-    ├── pytorch-lab/
-    └── vllm/
+    ├── rocm-version           # e.g. "7.2.4" — substituted as ${ROCM_VERSION}
+    ├── lemonade/              # ROCm + Vulkan + NPU, OpenAI/Anthropic/Ollama APIs
+    ├── ramalama/              # OCI-native, auto-detect ROCm (replaces Ollama)
+    ├── llama-strix/           # STACK_ARCH=strix-halo, gfx1151 unified memory
+    ├── llama-vulkan/          # STACK_ARCH=strix-halo, Vulkan/RADV, no KFD needed
+    ├── pytorch-lab/           # docker.io/rocm/pytorch official image
+    └── vllm/                  # PagedAttention, RX 7900 / MI series
 ```
 
-Discovery: `_discover_stacks()` checks system dirs first (`/usr/share/ublue-os/nvidia-stacks/`, `/usr/share/ublue-os/amd-stacks/`), falls back to bundled `stacks/` if not found.
+**Discovery**: `_discover_stacks()` checks system dirs first (`/usr/share/ublue-os/nvidia-stacks/`,
+`/usr/share/ublue-os/amd-stacks/`), falls back to bundled `stacks/<vendor>/` via
+`importlib.resources` if the system dir is absent (dev machines, pre-install).
+
+## stack.env fields
+
+| Field | Required | Description |
+|---|---|---|
+| `STACK_NAME` | yes | Display name |
+| `STACK_DESC` | yes | One-line description (shown in list, truncated to ~45 chars) |
+| `STACK_LONG_DESC` | recommended | Multi-sentence description for the detail pane |
+| `STACK_ARCH` | optional | Target architecture label, e.g. `strix-halo` — shown as badge |
+| `STACK_CATEGORY` | yes | `serve` / `dev` / `train` / `nim` |
+| `STACK_VRAM_GB` | yes | Minimum VRAM in GB |
+| `STACK_DISK_GB` | yes | Approximate disk usage in GB |
+| `STACK_PORTS` | yes | `name:port` comma-separated |
+| `STACK_ORDER` | yes | Sort order (lower = first) |
+| `STACK_REQUIRES_NGC_AUTH` | optional | `true` if NGC API key required |
+| `STACK_REQUIRES_HF_AUTH` | optional | `true` if HuggingFace token required |
+
+Stack-specific vars (e.g. `LLAMA_MODEL`, `VLLM_MODEL`) are also substituted into
+the container file at deploy time — any `${VAR}` present in the `.container` file
+is replaced from stack.env values.
+
+## AIStack dataclass fields
+
+```python
+@dataclass
+class AIStack:
+    slug: str
+    name: str
+    description: str          # short, list view
+    long_description: str     # full, detail pane
+    arch: str                 # e.g. "strix-halo" — empty = any GPU
+    category: StackCategory
+    vram_gb: int
+    disk_gb: int
+    ports: dict[str, int]
+    requires_ngc_auth: bool
+    requires_hf_auth: bool
+    requires_kfd: bool        # auto-detected: True if AddDevice=/dev/kfd in .container
+    order: int
+    container_file: str
+    network_file: str
+    status: StackStatus
+```
+
+`requires_kfd` is derived automatically from the container file — no stack.env field needed.
 
 ## Variable substitution
 
-Deploy copies quadlet files to `~/.config/containers/systemd/` substituting:
+`_copy_quadlets()` performs three layers of substitution before writing to
+`~/.config/containers/systemd/`:
 
 | Variable | Source |
 |---|---|
 | `${NGC_MONTH}` | `stacks/nvidia/ngc-month` file |
 | `${ROCM_VERSION}` | `stacks/amd/rocm-version` file |
+| `${LLAMA_MODEL}`, `${VLLM_MODEL}`, etc. | stack's own `stack.env` values |
 
-`_copy_quadlets()` reads these files and does a string replace before writing.
+## GPU status bar (screens/ai.py)
+
+`GpuStatusBar` is a **single-line** `Static` at the top of the Stacks tab — not an
+`AdwPreferencesGroup`. Height is 1 row. AMD line example:
+
+```
+AMD Radeon RX 7900 XTX  24 GB  kfd: ok  render: ok  ROCm 7.2.4
+```
+
+If render group is missing: `render: [!] not in group` — fixed automatically at deploy time.
+
+## Stack lifecycle (toggle model)
+
+Stacks are either **deployed** or **not deployed** — no persistent-but-stopped state.
+
+| Action | Key | What it does |
+|---|---|---|
+| Deploy | Enter | Copy quadlets + daemon-reload + systemctl start |
+| Remove | s | systemctl stop + disable + delete quadlet files + daemon-reload |
+| Logs | l | journalctl --user for the stack's service |
+
+`remove_stack_steps()` is the canonical function. `stop_stack_steps()` is an alias for
+CLI backward compat.
+
+## Deploy preflight — render group
+
+When `stack.requires_kfd` is True and the user is not in the `render` group,
+`deploy_stack_steps()` inserts a preflight step that runs:
+
+```bash
+pkexec usermod -aG render $USER
+```
+
+This is step 1 of 6 (vs 5 for stacks that don't need KFD). Failure is non-fatal —
+deploy continues because `/dev/dri/renderD128` may still be world-accessible.
 
 ## Auth
 
@@ -75,83 +173,44 @@ has_ngc = await check_ngc_secret()
 
 NGC auth required for NIM stacks (`STACK_REQUIRES_NGC_AUTH=true` in stack.env).
 
-## Deploy flow
+## AI Tools registry
 
-```
-Preflight checks:
-  1. GPU vendor detected (NVIDIA CDI / AMD KFD / Intel)
-  2. VRAM >= STACK_VRAM_GB (warn if not, allow override)
-  3. Ports not in use
-  4. Disk space estimate
-  5. Auth tokens if required
-
-Deploy (OperationModal steps):
-  1. _copy_quadlets() → ~/.config/containers/systemd/
-  2. systemctl --user daemon-reload
-  3. podman pull <image>  (PodmanPullParser for progress)
-  4. systemctl --user start <pod>
-  5. Verify pod is running
-
-Failure rollback:
-  - Remove copied quadlet files
-  - daemon-reload to clean state
-```
-
-## Status detection
-
-```python
-# Pod running check
-proc = await asyncio.create_subprocess_exec(
-    "systemctl", "--user", "is-active", f"{stack_name}-pod.service",
-    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-)
-stdout, _ = await proc.communicate()
-is_running = proc.returncode == 0 and stdout.decode().strip() == "active"
-```
-
-## Image tag format (rollback calendar)
-
-Bluefin daily builds use date-tagged images: `ghcr.io/projectbluefin/dakota:latest.20260113`. The rollback calendar uses `skopeo inspect --raw` to discover available tags from the registry.
-
-## AI Tools registry gap
-
-`AI_TOOL_REGISTRY` in `core/ai.py` currently has 6 entries. The full `ai-tools.Brewfile` has 21+ tools.
+`AI_TOOL_REGISTRY` in `core/ai.py`. Ollama is intentionally absent — use RamaLama stack.
 
 To add a tool:
 ```python
 AITool(
-    slug="ramalama",
-    command="ramalama",
-    name="Ramalama",
-    description="Run AI models locally — NVIDIA CDI and AMD ROCm",
-    category="Local LLM",
+    slug="my-tool",
+    command="my-tool",
+    name="My Tool",
+    description="What it does",
+    category="Local AI",
     installed=False,
     source=BUNDLE_AI_TOOLS_SOURCE,
 ),
 ```
-Detection: `shutil.which(tool.command)` for brew tools; flatpak tools need `flatpak list --app` check.
+Detection: `shutil.which(tool.command)` for brew tools.
 
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
-| Calling deploy from button handler without `@work` | `push_screen_wait` in deploy flow requires `@work(exclusive=True)` |
-| Hardcoding `/usr/share/ublue-os/nvidia-stacks/` path | Use `_discover_stacks()` which handles both system and bundled |
+| Calling deploy from button handler without `@work` | `push_screen_wait` requires `@work(exclusive=True)` |
+| Using `_discover_stacks()` with hardcoded system path | Function handles system → bundled fallback automatically |
 | `systemctl start` without `--user` flag | AI stacks are user-level systemd units |
 | Forgetting `daemon-reload` after copy | Quadlet files require daemon-reload before start |
-
-## Red Flags
-
-- New stack added to `stacks/` without a `stack.env` file
-- Deploy action calls `push_screen_wait` without `@work`
-- `AI_TOOL_REGISTRY` and `ai-tools.Brewfile` diverge further (check both when adding tools)
+| Adding Ollama back to registry | Ollama is intentionally removed — use RamaLama |
+| Using AdwPreferencesGroup for GPU info | Use GpuStatusBar (single-line Static, height: 1) |
+| Adding buttons to AI screen | No buttons — all actions are keyboard/footer only |
 
 ## Verification
 
 After AI stack changes:
 
 - [ ] `pytest tests/test_ai.py` passing
-- [ ] `ruff` and `mypy` clean
-- [ ] GPU detection returns correct vendor on target hardware
-- [ ] Stack appears in catalog with correct VRAM badge
-- [ ] Deploy smoke test: stack starts, port opens, stop works
+- [ ] `ruff check` and `mypy` clean
+- [ ] AMD stacks load from bundled fallback when system dir absent
+- [ ] Stack appears in catalog with correct VRAM badge and arch label if applicable
+- [ ] `long_description` shows in detail pane
+- [ ] Deploy smoke test: quadlet files written with correct substitutions, service starts
+- [ ] Remove smoke test: service stopped, quadlet files deleted, daemon-reloaded
