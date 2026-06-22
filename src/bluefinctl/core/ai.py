@@ -378,8 +378,16 @@ async def install_ai_tools_kit_steps() -> AsyncGenerator[ProgressUpdate]:
         yield update
 
 
+def _bundled_stack_dir(vendor: GpuVendor) -> Path:
+    """Return the bundled stacks directory for the given vendor."""
+    import importlib.resources
+    vendor_name = "nvidia" if vendor == GpuVendor.NVIDIA else "amd"
+    ref = importlib.resources.files("bluefinctl") / "stacks" / vendor_name
+    return Path(str(ref))
+
+
 def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
-    """Discover AI stacks from system directories."""
+    """Discover AI stacks, preferring system dirs and falling back to bundled."""
     stacks: list[AIStack] = []
 
     if vendor == GpuVendor.NVIDIA:
@@ -389,6 +397,8 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
     else:
         return stacks
 
+    if not stack_dir.exists():
+        stack_dir = _bundled_stack_dir(vendor)
     if not stack_dir.exists():
         return stacks
 
