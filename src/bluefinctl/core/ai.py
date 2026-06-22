@@ -95,6 +95,7 @@ class AIStack:
     status: StackStatus = StackStatus.AVAILABLE
     arch: str = ""  # e.g. "strix-halo" — empty means any AMD GPU
     long_description: str = ""  # multi-sentence description for the detail pane
+    requires_kfd: bool = False  # derived from container file — True if AddDevice=/dev/kfd present
 
     @property
     def vram_badge(self) -> str:
@@ -441,6 +442,11 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
         with contextlib.suppress(ValueError):
             category = StackCategory(env.get("STACK_CATEGORY", "serve"))
 
+        requires_kfd = False
+        if container_file:
+            with contextlib.suppress(OSError):
+                requires_kfd = "AddDevice=/dev/kfd" in Path(container_file).read_text()
+
         stack = AIStack(
             slug=entry.name,
             name=env.get("STACK_NAME", entry.name.title()),
@@ -456,6 +462,7 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
             order=int(env.get("STACK_ORDER", "99")),
             container_file=container_file,
             network_file=network_file,
+            requires_kfd=requires_kfd,
         )
         stacks.append(stack)
 
@@ -539,10 +546,61 @@ def _copy_quadlets(stack: AIStack) -> int:
 
 async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
     """Deploy an AI stack via quadlet files with OperationModal progress."""
-    total_steps = 5
+    import getpass
+    import grp
+    import os
+
+    # Preflight: render group membership for KFD/ROCm stacks
+    if stack.requires_kfd:
+        try:
+            render_gid = grp.getgrnam("render").gr_gid
+            in_render = render_gid in os.getgroups()
+        except KeyError:
+            in_render = True  # render group doesn't exist — skip
+        if not in_render:
+            username = getpass.getuser()
+            yield ProgressUpdate(
+                percent=0,
+                step=1,
+                total_steps=6,
+                message=f"Adding {username} to render group (requires password)…",
+            )
+            proc = await asyncio.create_subprocess_exec(
+                "pkexec", "usermod", "-aG", "render", username,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+            if proc.returncode == 0:
+                yield ProgressUpdate(
+                    percent=5,
+                    step=1,
+                    total_steps=6,
+                    message="Added to render group — effective on next login",
+                )
+            else:
+                yield ProgressUpdate(
+                    percent=5,
+                    step=1,
+                    total_steps=6,
+                    message="Could not add to render group — continuing anyway",
+                )
+            total_steps = 6
+            step_offset = 1
+        else:
+            total_steps = 5
+            step_offset = 0
+    else:
+        total_steps = 5
+        step_offset = 0
+
     yield ProgressUpdate(
-        percent=0,
-        step=1,
+        percent=max(5, 0),
+        step=1 + step_offset,
         total_steps=total_steps,
         message="Preparing quadlet directory",
     )
@@ -551,15 +609,15 @@ async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
     copied = await loop.run_in_executor(None, _copy_quadlets, stack)
 
     yield ProgressUpdate(
-        percent=25,
-        step=2,
+        percent=25 + step_offset * 5,
+        step=2 + step_offset,
         total_steps=total_steps,
         message=f"Copied {copied} quadlet file(s)",
     )
 
     yield ProgressUpdate(
-        percent=50,
-        step=3,
+        percent=50 + step_offset * 5,
+        step=3 + step_offset,
         total_steps=total_steps,
         message="Reloading user systemd",
     )
@@ -567,8 +625,8 @@ async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
 
     service_name = _stack_service_name(stack)
     yield ProgressUpdate(
-        percent=75,
-        step=4,
+        percent=75 + step_offset * 5,
+        step=4 + step_offset,
         total_steps=total_steps,
         message=f"Starting {service_name}",
     )
