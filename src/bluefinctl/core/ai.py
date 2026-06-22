@@ -93,6 +93,8 @@ class AIStack:
     container_file: str = ""
     network_file: str = ""
     status: StackStatus = StackStatus.AVAILABLE
+    arch: str = ""  # e.g. "strix-halo" — empty means any AMD GPU
+    long_description: str = ""  # multi-sentence description for the detail pane
 
     @property
     def vram_badge(self) -> str:
@@ -443,6 +445,8 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
             slug=entry.name,
             name=env.get("STACK_NAME", entry.name.title()),
             description=env.get("STACK_DESC", ""),
+            long_description=env.get("STACK_LONG_DESC", ""),
+            arch=env.get("STACK_ARCH", ""),
             category=category,
             vram_gb=int(env.get("STACK_VRAM_GB", "0")),
             disk_gb=int(env.get("STACK_DISK_GB", "0")),

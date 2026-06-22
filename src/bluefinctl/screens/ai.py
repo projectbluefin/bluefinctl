@@ -8,6 +8,8 @@ TabbedContent with 2 tabs:
 from __future__ import annotations
 
 import asyncio
+import grp
+import os
 from typing import TYPE_CHECKING, Any
 
 from bluefinctl.core.ai import AI_TOOLS_KIT_SLUG, BUNDLE_AI_TOOLS_SOURCE
@@ -25,40 +27,54 @@ from textual.widgets import Label, ListItem, ListView, Static, TabbedContent, Ta
 
 from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
-from bluefinctl.widgets.adw import AdwPreferencesGroup, AdwPropertyRow
 
 
-class GpuCard(AdwPreferencesGroup):
-    """GPU detection card shown at top of Stacks tab."""
+def _check_render_group() -> bool:
+    """Return True if the current user is in the render group."""
+    try:
+        render_gid = grp.getgrnam("render").gr_gid
+        return render_gid in os.getgroups()
+    except KeyError:
+        return False  # render group doesn't exist on this system
 
-    def __init__(self) -> None:
-        super().__init__(
-            "GPU",
-            AdwPropertyRow("Vendor", "Detecting…", id="gpu-vendor"),
-            AdwPropertyRow("VRAM", "—", id="gpu-vram"),
-            AdwPropertyRow("Driver", "—", id="gpu-driver"),
-        )
+
+class GpuStatusBar(Static):
+    """Single-line GPU status header — compact, no wasted vertical space."""
+
+    DEFAULT_CSS = """
+    GpuStatusBar {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        border-bottom: solid $border;
+    }
+    """
 
     def on_mount(self) -> None:
         self.run_worker(self._load(), exclusive=True)
 
     async def _load(self) -> None:
+        import asyncio
+
         from bluefinctl.core.ai import GpuVendor, detect_gpu
         loop = asyncio.get_running_loop()
         gpu = await loop.run_in_executor(None, detect_gpu)
         if gpu.vendor == GpuVendor.NONE:
-            self.query_one("#gpu-vendor", AdwPropertyRow).update_value("No discrete GPU")
-        else:
-            self.query_one("#gpu-vendor", AdwPropertyRow).update_value(
-                f"{gpu.vendor.value.upper()} {gpu.model}"
-            )
-            self.query_one("#gpu-vram", AdwPropertyRow).update_value(
-                f"{gpu.vram_gb} GB" if gpu.vram_gb else "—"
-            )
-            driver_info = gpu.driver_version if gpu.driver_version else "—"
-            if gpu.cdi_active:
-                driver_info += "  ·  CDI active"
-            self.query_one("#gpu-driver", AdwPropertyRow).update_value(driver_info)
+            self.update("No discrete GPU detected")
+            return
+
+        parts = [f"{gpu.vendor.value.upper()} {gpu.model}"]
+        if gpu.vram_gb:
+            parts.append(f"{gpu.vram_gb} GB")
+        if gpu.vendor == GpuVendor.NVIDIA:
+            parts.append(f"CDI: {'ok' if gpu.cdi_active else 'inactive'}")
+            if gpu.driver_version:
+                parts.append(f"driver {gpu.driver_version}")
+        elif gpu.vendor == GpuVendor.AMD:
+            parts.append(f"kfd: {'ok' if gpu.kfd_ok else '[!] missing'}")
+            render_ok = _check_render_group()
+            parts.append(f"render: {'ok' if render_ok else '[!] not in group'}")
+        self.update("  ".join(parts))
 
 
 class StacksTab(Static):
@@ -84,7 +100,6 @@ class StacksTab(Static):
     #stack-detail-title {
         text-style: bold;
         color: $accent;
-        margin-bottom: 1;
     }
     """
 
@@ -93,7 +108,7 @@ class StacksTab(Static):
         self._stacks: list[Any] = []
 
     def compose(self) -> ComposeResult:
-        yield GpuCard()
+        yield GpuStatusBar()
         with Horizontal(id="stack-list-container"):
             yield ListView(id="stack-list")
             with Vertical(id="stack-detail"):
@@ -130,10 +145,11 @@ class StacksTab(Static):
                 StackStatus.EXCEEDS_VRAM: "[-]",
             }.get(stack.status, "[ ]")
 
+            arch_badge = f"[{stack.arch}] " if stack.arch else ""
             label = (
                 f"  {status_icon} {stack.name:<18} "
-                f"{stack.vram_gb:>2} GB   {stack.category.value:<6}  "
-                f"{stack.description[:40]}"
+                f"{stack.vram_gb:>2} GB  "
+                f"{arch_badge}{stack.description[:45]}"
             )
             item = ListItem(Label(label), name=stack.slug)
             if stack.status == StackStatus.EXCEEDS_VRAM:
@@ -152,7 +168,10 @@ class StacksTab(Static):
         title = self.query_one("#stack-detail-title", Label)
         body = self.query_one("#stack-detail-body", Label)
 
-        title.update(stack.name)
+        arch_suffix = f"  [{stack.arch}]" if stack.arch else ""
+        title.update(f"{stack.name}{arch_suffix}")
+
+        desc = stack.long_description or stack.description
 
         port_lines = ""
         if stack.ports:
@@ -160,7 +179,6 @@ class StacksTab(Static):
             for name, port in stack.ports.items():
                 url = f"http://localhost:{port}"
                 if stack.status == StackStatus.RUNNING:
-                    # Rich [link] markup — clickable in supporting terminals
                     port_lines += f"    {name}: [link={url}]{url}[/link]\n"
                 else:
                     port_lines += f"    {name}: {url}\n"
@@ -172,18 +190,18 @@ class StacksTab(Static):
             deps.append("HuggingFace token")
         dep_line = f"\n  Requires: {', '.join(deps)}" if deps else ""
 
-        status_line = f"  Status: {stack.status.value.upper()}"
+        status_label = stack.status.value.upper()
+        meta = (
+            f"  {stack.category.value}  ·  {stack.vram_gb} GB VRAM  ·  "
+            f"~{stack.disk_gb} GB disk  ·  {status_label}"
+        )
 
         body.update(
-            f"  {stack.description}\n"
+            f"\n  {desc}\n"
             f"\n"
-            f"  Category: {stack.category.value}\n"
-            f"  VRAM: {stack.vram_gb} GB | Disk: ~{stack.disk_gb} GB\n"
-            f"{status_line}"
+            f"{meta}"
             f"{port_lines}"
             f"{dep_line}\n"
-            f"\n"
-            f"  [Enter] Deploy  [s] Stop  [l] Logs",
         )
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
