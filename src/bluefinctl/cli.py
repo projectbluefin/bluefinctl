@@ -238,7 +238,7 @@ def changelogs() -> None:
         if date:
             try:
                 with urllib.request.urlopen(
-                    f"https://api.github.com/repos/{repo}/releases"
+                    f"https://api.github.com/repos/{repo}/releases", timeout=10
                 ) as r:
                     releases = json.loads(r.read())
                 content = next(
@@ -253,7 +253,7 @@ def changelogs() -> None:
             typer.echo("WARN: Could not find a version-specific release, showing latest.")
         try:
             with urllib.request.urlopen(
-                f"https://api.github.com/repos/{repo}/releases/latest"
+                f"https://api.github.com/repos/{repo}/releases/latest", timeout=10
             ) as r:
                 content = json.loads(r.read()).get("body", "")
         except urllib.error.URLError as e:
@@ -366,7 +366,7 @@ def setup_vms() -> None:
         ["flatpak", "install", "--system", "--noninteractive", "flathub", *_VM_FLATPAKS],
         check=True,
     )
-    subprocess.run(["/usr/libexec/ensure-libvirt-session-config"])
+    subprocess.run(["/usr/libexec/ensure-libvirt-session-config"], check=True)
     typer.echo(
         "VM stack ready. Supports: Linux/Windows VMs, Windows 11 (UEFI + TPM), USB passthrough."
     )
