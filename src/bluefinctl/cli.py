@@ -207,6 +207,94 @@ def focus(
         raise typer.Exit(1)
 
 
+# ── Kit / bundle management ───────────────────────────────────────────────────
+
+kit_app = typer.Typer(help="Manage software kits (Brewfile bundles)")
+app.add_typer(kit_app, name="kit")
+
+
+@kit_app.command("list")
+def kit_list() -> None:
+    """List available kits and their activation status."""
+    import asyncio
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from bluefinctl.core.bundles import get_bundles
+
+    console = Console()
+    bundles = asyncio.run(get_bundles())
+
+    table = Table(title="Software Kits")
+    table.add_column("Kit", style="bold")
+    table.add_column("Category")
+    table.add_column("Status")
+    table.add_column("Packages", justify="right")
+    for b in bundles:
+        table.add_row(b.name, b.meta.category.value, b.state.value,
+                      f"{b.installed_count}/{b.total_count}")
+    console.print(table)
+
+
+@kit_app.command("install")
+def kit_install(
+    name: str = typer.Argument(..., help="Bundle slug to install"),
+) -> None:
+    """Install a kit (Brewfile bundle) on this system."""
+    import asyncio
+
+    from rich.console import Console
+
+    from bluefinctl.core.bundles import activate_bundle_steps
+
+    console = Console()
+
+    async def _run() -> None:
+        async for update in activate_bundle_steps(name):
+            if update.message:
+                console.print(update.message)
+
+    try:
+        asyncio.run(_run())
+        console.print(f"[green]Kit '{name}' installed.[/green]")
+    except FileNotFoundError:
+        Console(stderr=True).print(f"[red]Kit '{name}' not found.[/red]")
+        raise typer.Exit(1) from None
+    except RuntimeError as e:
+        Console(stderr=True).print(f"[red]Failed: {e}[/red]")
+        raise typer.Exit(1) from None
+
+
+@kit_app.command("remove")
+def kit_remove(
+    name: str = typer.Argument(..., help="Bundle slug to remove"),
+) -> None:
+    """Remove a kit (Brewfile bundle) from this system."""
+    import asyncio
+
+    from rich.console import Console
+
+    from bluefinctl.core.bundles import deactivate_bundle_steps
+
+    console = Console()
+
+    async def _run() -> None:
+        async for update in deactivate_bundle_steps(name):
+            if update.message:
+                console.print(update.message)
+
+    try:
+        asyncio.run(_run())
+        console.print(f"[green]Kit '{name}' removed.[/green]")
+    except FileNotFoundError:
+        Console(stderr=True).print(f"[red]Kit '{name}' not found.[/red]")
+        raise typer.Exit(1) from None
+    except RuntimeError as e:
+        Console(stderr=True).print(f"[red]Failed: {e}[/red]")
+        raise typer.Exit(1) from None
+
+
 # ── Bluefin-specific commands ─────────────────────────────────────────────────
 
 @app.command()

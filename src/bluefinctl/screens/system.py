@@ -8,7 +8,7 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Button
+from textual.widgets import Button, Footer
 
 from bluefinctl.core.notify import system_notify
 from bluefinctl.screens._viewswitcher import ViewSwitcher
@@ -36,6 +36,8 @@ class SystemScreen(Screen[None]):
 
     BINDINGS = [
         ("u", "update_all", "Update"),
+        ("d", "toggle_devmode", "Devmode"),
+        ("r", "system_report", "Report"),
     ]
 
     DEFAULT_CSS = """
@@ -43,6 +45,7 @@ class SystemScreen(Screen[None]):
     .adw-cols { height: auto; }
     .adw-col  { width: 1fr; height: auto; padding: 0 2; }
     #adw-content { height: 1fr; }
+    SystemScreen Footer { dock: none; height: 1; background: $panel; }
     """
 
     def compose(self) -> ComposeResult:
@@ -91,6 +94,7 @@ class SystemScreen(Screen[None]):
                         ),
                         RollbackCalendar(id="rollback-calendar"),
                     )
+        yield Footer()
         yield OpsBar()
 
     def on_mount(self) -> None:

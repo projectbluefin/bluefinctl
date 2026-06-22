@@ -19,9 +19,9 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 
 | Item | Status |
 |------|--------|
-| 3-screen horizontal ViewSwitcher (System · Updates · Developer) | ✅ |
-| AI tab hidden for 1.0 | ✅ |
-| Number keys 1–3 to switch screens | ✅ |
+| 3-screen horizontal ViewSwitcher (System · Updates · Developer) | ✅ Now 5-screen: System · Updates · Toolkit · Developer · AI |
+| AI tab hidden for 1.0 | ✅ AI tab now visible (key 5) |
+| Number keys 1–3 to switch screens | ✅ Now keys 1–5 |
 | `bctl` / `just run` to launch | ✅ |
 | Command Palette (Ctrl+P) | ✅ |
 | Help modal (?) | ✅ |
@@ -42,6 +42,17 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | Scrollbar — `#adw-content { height: 1fr }` | ✅ |
 | Update status in OpsBar on load | ✅ |
 | Degraded mode for non-bootc systems | ✅ Shows "unavailable" in-place |
+
+### Toolkit (`screens/toolkit.py`)
+
+| Item | Status |
+|------|--------|
+| Bundle ListView (left column) with state indicator | ✅ |
+| Detail pane (right) — description, status, package preview | ✅ |
+| Activate / Deactivate button (OpsBar streaming) | ✅ |
+| Base bundles disabled (cannot remove) | ✅ |
+| Refresh action (`r`) | ✅ |
+| Footer showing shortcuts | ✅ |
 
 ### Updates (`screens/updates.py`)
 
@@ -89,23 +100,23 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | `add_completed(name)` ticker after each tool | ✅ |
 | Lima install chains VS Code automatically | ✅ |
 | Incus: `brew install incus` + `pkexec usermod -aG incus-admin` | ✅ |
-| Lima VM status from `limactl list --format json` | ⬜ Detection uses `limactl list --json`; could be richer |
+| Lima VM status from `limactl list --format json` | ✅ `get_lima_status()` uses `--json`; shows VM count + running in subtitle |
 | Remove/uninstall actions | ✅ Remove button shown when tool is installed; streams via OpsBar |
 
 ### AI (`screens/ai.py`)
 
 | Item | Status |
 |------|--------|
-| Hidden for 1.0 (tab removed from navigation) | ✅ |
+| Hidden for 1.0 (tab removed from navigation) | ✅ Now visible — AI screen unhidden, key 5 |
 | GPU detection card (NVIDIA CDI / AMD KFD) | ✅ |
 | Stack catalog ListView + detail pane | ✅ |
 | Category filter bar (All / Serve / Dev / Train) | ✅ |
 | Bundled quadlet catalog (nvidia/ and amd/) | ✅ |
-| Deploy / Stop / Remove / Logs | ✅ |
+| Deploy / Stop / Remove / Logs | ✅ action_* methods now wrapped with @work(exclusive=True) |
 | NGC auth check + prompt | ✅ |
-| Clickable port links (OSC 8) | ⬜ Ports shown as text only |
-| AI Tools registry completeness | ⬜ 6 entries; `ai-tools.Brewfile` has 21+ |
-| VRAM badge greying | ⬜ Warning shown, no greying |
+| Clickable port links (OSC 8) | ✅ Rich [link] markup for running stack ports |
+| AI Tools registry completeness | ✅ 13 entries (was 6); goose/claude/aider/aichat/ramalama/ollama/lm-studio added |
+| VRAM badge greying | ✅ .vram-exceeded CSS class on ListItem when EXCEEDS_VRAM |
 
 ## Cross-cutting
 
@@ -132,15 +143,15 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | Item | Status |
 |------|--------|
 | Help modal (?) with shortcut reference | ✅ (basic) |
-| Footer shortcuts update per screen | ⬜ Global bindings only |
+| Footer shortcuts update per screen | ✅ Footer widget added to all screens with per-screen BINDINGS |
 
 ### Testing
 
 | Item | Status |
 |------|--------|
-| pytest suite — 106 tests | ✅ |
+| pytest suite — 104 tests | ✅ |
 | `test_reboot_strategy.py` — 10 tests for smart reboot helpers | ✅ |
-| `test_app_acceptance.py` — 3-screen registration (AI hidden) | ✅ |
+| `test_app_acceptance.py` — 5-screen registration (AI visible, Toolkit added) | ✅ |
 | `test_commands.py` — PackageProvider, NavigationProvider | ✅ |
 | `test_devmode.py` — tool inventory, install detection | ✅ |
 | `test_bundles.py`, `test_operations.py`, `test_progress.py` | ✅ |
@@ -158,7 +169,7 @@ Status of every v1 scope item. Pick one `⬜` item, implement it, flip it to `�
 | `bctl install brew:<pkg>` / `flatpak:<app-id>` | ✅ |
 | `bctl ai list/deploy/stop` | ✅ |
 | `bctl focus on/off/status` | ✅ |
-| `bctl kit remove <name>` | ⬜ |
+| `bctl kit remove <name>` | ✅ Full `kit` subgroup: list / install / remove |
 
 ### Degraded mode (non-bootc systems)
 

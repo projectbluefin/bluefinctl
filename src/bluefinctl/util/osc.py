@@ -62,3 +62,12 @@ def set_terminal_title(title: str) -> None:
 def osc_notify(title: str, body: str = "") -> None:
     """Send a desktop notification via OSC 777 (supported by some terminals)."""
     _write_osc(f"\033]777;notify;{title};{body}\033\\")
+
+
+def osc8_hyperlink(url: str, text: str) -> str:
+    """Return text wrapped in OSC 8 hyperlink escape sequences.
+
+    Supported by: Ghostty, Kitty, iTerm2, WezTerm, foot.
+    Unsupported terminals display the plain text unchanged.
+    """
+    return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"

@@ -15,6 +15,7 @@ from bluefinctl.core.ai import AI_TOOLS_KIT_SLUG, BUNDLE_AI_TOOLS_SOURCE
 if TYPE_CHECKING:
     from bluefinctl.core.ai import AITool
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -70,6 +71,9 @@ class StacksTab(Static):
     }
     #stack-list {
         height: 1fr;
+    }
+    #stack-list ListItem.vram-exceeded Label {
+        color: $text-muted;
     }
     #stack-detail {
         width: 1fr;
@@ -131,13 +135,17 @@ class StacksTab(Static):
                 f"{stack.vram_gb:>2} GB   {stack.category.value:<6}  "
                 f"{stack.description[:40]}"
             )
-            stack_list.append(ListItem(Label(label), name=stack.slug))
+            item = ListItem(Label(label), name=stack.slug)
+            if stack.status == StackStatus.EXCEEDS_VRAM:
+                item.add_class("vram-exceeded")
+            stack_list.append(item)
 
         if stacks:
             self._show_stack_detail(0)
 
     def _show_stack_detail(self, index: int) -> None:
         """Show details for a selected stack."""
+        from bluefinctl.core.ai import StackStatus
         if index < 0 or index >= len(self._stacks):
             return
         stack = self._stacks[index]
@@ -150,7 +158,12 @@ class StacksTab(Static):
         if stack.ports:
             port_lines = "\n  Ports:\n"
             for name, port in stack.ports.items():
-                port_lines += f"    {name}: http://localhost:{port}\n"
+                url = f"http://localhost:{port}"
+                if stack.status == StackStatus.RUNNING:
+                    # Rich [link] markup — clickable in supporting terminals
+                    port_lines += f"    {name}: [link={url}]{url}[/link]\n"
+                else:
+                    port_lines += f"    {name}: {url}\n"
 
         deps = []
         if stack.requires_ngc_auth:
@@ -260,6 +273,7 @@ class AIScreen(Screen[None]):
         height: 1fr;
         padding: 0 1;
     }
+    AIScreen Footer { dock: none; height: 1; background: $panel; }
     """
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:  # noqa: ARG002
@@ -272,13 +286,16 @@ class AIScreen(Screen[None]):
         return None
 
     def compose(self) -> ComposeResult:
+        from textual.widgets import Footer
         yield ViewSwitcher("ai")
         with ScrollableContainer(id="ai-content"), TabbedContent():
             with TabPane("Stacks", id="tab-stacks"):
                 yield StacksTab()
             with TabPane("Tools", id="tab-tools"):
                 yield ToolsTab()
+        yield Footer()
 
+    @work(exclusive=True)
     async def action_deploy_stack(self) -> None:
         """Deploy the selected stack or install selected AI tool on the Tools tab."""
         tabbed = self.query_one(TabbedContent)
@@ -365,6 +382,7 @@ class AIScreen(Screen[None]):
         else:
             system_notify("AI", "Failed to install AI Tools kit", urgency="critical")
 
+    @work(exclusive=True)
     async def action_stop_stack(self) -> None:
         """Stop the selected running stack."""
         from bluefinctl.core.ai import StackStatus, stop_stack_steps
@@ -396,6 +414,7 @@ class AIScreen(Screen[None]):
         else:
             system_notify("AI", f"Failed to stop {stack.name}", urgency="critical")
 
+    @work(exclusive=True)
     async def action_stack_logs(self) -> None:
         """View logs for the selected stack."""
         from bluefinctl.screens._modals import OperationLogModal
