@@ -661,6 +661,51 @@ Button("Cancel", variant="default")      # neutral
 
 ---
 
+## Rich Markup and Sanitization / Escaping
+
+Always escape any dynamic content or subprocess output before rendering it inside a Textual widget with `markup=True` (which is the default on all Widgets, Labels, and Statics).
+
+### When to Use
+- Displaying subprocess `stdout` or `stderr`
+- Displaying exception messages caught in try/except blocks (e.g., `except Exception as exc`)
+- Displaying package names, URLs, or external data that might contain square brackets (`[` or `]`)
+
+### When NOT to Use
+- Hardcoded string constants that have explicit, safe Rich markup (e.g. `"[bold]Global[/bold]"`)
+- Widgets that explicitly have `markup=False` configured
+
+### Core Process
+1. Use `re` to strip any ANSI color/formatting escape codes:
+   ```python
+   import re
+   ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+   clean_text = ansi_escape.sub("", raw_text)
+   ```
+2. Escape any remaining markup brackets using `rich.markup.escape`:
+   ```python
+   from rich.markup import escape
+   safe_text = escape(clean_text)
+   ```
+3. Update the widget with the sanitized/escaped text.
+
+Alternatively, if no markup support is needed at all on the widget, explicitly set `markup=False` on the widget's constructor:
+```python
+yield Label("Some dynamic content", id="dynamic-label", markup=False)
+```
+
+### Red Flags
+- Passing a dynamic variable directly into a markup string: `f"[bold red]{message}[/bold red]"`
+- Catching an exception and displaying it in `ops.set_error(str(exc))` without escaping it or ensuring the label has `markup=False`
+- Yielding a `Label` or `Static` for process messages without explicitly specifying `markup=False`
+
+### Verification
+- [ ] Run linter `ruff check` and type checker `mypy` to verify clean imports
+- [ ] Run `pytest` to ensure no regressions
+- [ ] Verify that any dynamic text widget that should support markup (like `OpsBar`) escapes the variable portion
+- [ ] Verify that non-markup dynamic text widgets (like `OperationModal` and `ConfirmModal`) are created with `markup=False`
+
+---
+
 ## Common Pitfalls
 
 | Symptom | Cause | Fix |
