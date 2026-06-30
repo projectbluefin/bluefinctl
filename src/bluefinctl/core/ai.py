@@ -93,6 +93,9 @@ class AIStack:
     container_file: str = ""
     network_file: str = ""
     status: StackStatus = StackStatus.AVAILABLE
+    arch: str = ""  # e.g. "strix-halo" — empty means any AMD GPU
+    long_description: str = ""  # multi-sentence description for the detail pane
+    requires_kfd: bool = False  # derived from container file — True if AddDevice=/dev/kfd present
 
     @property
     def vram_badge(self) -> str:
@@ -209,15 +212,6 @@ AI_TOOL_REGISTRY: tuple[AITool, ...] = (
         command="ramalama",
         name="RamaLama",
         description="Run AI models locally via OCI containers",
-        category="Local AI",
-        installed=False,
-        source=BUNDLE_AI_TOOLS_SOURCE,
-    ),
-    AITool(
-        slug="ollama",
-        command="ollama",
-        name="Ollama",
-        description="Run and manage local language models",
         category="Local AI",
         installed=False,
         source=BUNDLE_AI_TOOLS_SOURCE,
@@ -378,8 +372,16 @@ async def install_ai_tools_kit_steps() -> AsyncGenerator[ProgressUpdate]:
         yield update
 
 
+def _bundled_stack_dir(vendor: GpuVendor) -> Path:
+    """Return the bundled stacks directory for the given vendor."""
+    import importlib.resources
+    vendor_name = "nvidia" if vendor == GpuVendor.NVIDIA else "amd"
+    ref = importlib.resources.files("bluefinctl") / "stacks" / vendor_name
+    return Path(str(ref))
+
+
 def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
-    """Discover AI stacks from system directories."""
+    """Discover AI stacks, preferring system dirs and falling back to bundled."""
     stacks: list[AIStack] = []
 
     if vendor == GpuVendor.NVIDIA:
@@ -389,6 +391,8 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
     else:
         return stacks
 
+    if not stack_dir.exists():
+        stack_dir = _bundled_stack_dir(vendor)
     if not stack_dir.exists():
         return stacks
 
@@ -429,10 +433,17 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
         with contextlib.suppress(ValueError):
             category = StackCategory(env.get("STACK_CATEGORY", "serve"))
 
+        requires_kfd = False
+        if container_file:
+            with contextlib.suppress(OSError):
+                requires_kfd = "AddDevice=/dev/kfd" in Path(container_file).read_text()
+
         stack = AIStack(
             slug=entry.name,
             name=env.get("STACK_NAME", entry.name.title()),
             description=env.get("STACK_DESC", ""),
+            long_description=env.get("STACK_LONG_DESC", ""),
+            arch=env.get("STACK_ARCH", ""),
             category=category,
             vram_gb=int(env.get("STACK_VRAM_GB", "0")),
             disk_gb=int(env.get("STACK_DISK_GB", "0")),
@@ -442,6 +453,7 @@ def _discover_stacks(vendor: GpuVendor) -> list[AIStack]:
             order=int(env.get("STACK_ORDER", "99")),
             container_file=container_file,
             network_file=network_file,
+            requires_kfd=requires_kfd,
         )
         stacks.append(stack)
 
@@ -505,30 +517,119 @@ def _stack_service_name(stack: AIStack) -> str:
     return Path(stack.container_file).stem if stack.container_file else stack.slug
 
 
-def _copy_quadlets(stack: AIStack) -> int:
-    """Copy quadlet files to the user systemd directory synchronously.
+def _read_version_file(vendor: GpuVendor) -> str:
+    """Read the vendor version file bundled alongside the stacks."""
+    import importlib.resources
+    filename = "rocm-version" if vendor == GpuVendor.AMD else "ngc-month"
+    ref = importlib.resources.files("bluefinctl") / "stacks" / vendor.value / filename
+    with contextlib.suppress(OSError, TypeError):
+        return Path(str(ref)).read_text().strip()
+    return ""
 
-    Returns the number of files copied.  Uses :func:`shutil.copy2` so
-    file metadata is preserved and the write never blocks the event loop.
+
+def _copy_quadlets(stack: AIStack) -> int:
+    """Copy quadlet files to the user systemd directory, substituting version variables.
+
+    Substitutions applied before writing:
+      ${ROCM_VERSION}  → content of stacks/amd/rocm-version
+      ${NGC_MONTH}     → content of stacks/nvidia/ngc-month
+
+    Returns the number of files copied.
     """
     quadlet_dir = Path.home() / ".config" / "containers" / "systemd"
     quadlet_dir.mkdir(parents=True, exist_ok=True)
+
+    rocm_version = _read_version_file(GpuVendor.AMD)
+    ngc_month = _read_version_file(GpuVendor.NVIDIA)
+
+    # Load stack-specific env vars (LLAMA_MODEL, VLLM_MODEL, etc.)
+    stack_env: dict[str, str] = {}
+    if stack.container_file:
+        env_file = Path(stack.container_file).parent / "stack.env"
+        with contextlib.suppress(OSError):
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                stack_env[key.strip()] = value.strip().strip('"')
+
     copied = 0
     for source_file in (stack.container_file, stack.network_file):
         if not source_file:
             continue
         src = Path(source_file)
-        shutil.copy2(src, quadlet_dir / src.name)
+        text = src.read_text()
+        if rocm_version:
+            text = text.replace("${ROCM_VERSION}", rocm_version)
+        if ngc_month:
+            text = text.replace("${NGC_MONTH}", ngc_month)
+        for var, val in stack_env.items():
+            text = text.replace(f"${{{var}}}", val)
+        dest = quadlet_dir / src.name
+        dest.write_text(text)
+        shutil.copystat(src, dest)
         copied += 1
     return copied
 
 
 async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
     """Deploy an AI stack via quadlet files with OperationModal progress."""
-    total_steps = 5
+    import getpass
+    import grp
+    import os
+
+    # Preflight: render group membership for KFD/ROCm stacks
+    if stack.requires_kfd:
+        try:
+            render_gid = grp.getgrnam("render").gr_gid
+            in_render = render_gid in os.getgroups()
+        except KeyError:
+            in_render = True  # render group doesn't exist — skip
+        if not in_render:
+            username = getpass.getuser()
+            yield ProgressUpdate(
+                percent=0,
+                step=1,
+                total_steps=6,
+                message=f"Adding {username} to render group (requires password)…",
+            )
+            proc = await asyncio.create_subprocess_exec(
+                "pkexec", "usermod", "-aG", "render", username,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+            if proc.returncode == 0:
+                yield ProgressUpdate(
+                    percent=5,
+                    step=1,
+                    total_steps=6,
+                    message="Added to render group — effective on next login",
+                )
+            else:
+                yield ProgressUpdate(
+                    percent=5,
+                    step=1,
+                    total_steps=6,
+                    message="Could not add to render group — continuing anyway",
+                )
+            total_steps = 6
+            step_offset = 1
+        else:
+            total_steps = 5
+            step_offset = 0
+    else:
+        total_steps = 5
+        step_offset = 0
+
     yield ProgressUpdate(
-        percent=0,
-        step=1,
+        percent=max(5, 0),
+        step=1 + step_offset,
         total_steps=total_steps,
         message="Preparing quadlet directory",
     )
@@ -537,15 +638,15 @@ async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
     copied = await loop.run_in_executor(None, _copy_quadlets, stack)
 
     yield ProgressUpdate(
-        percent=25,
-        step=2,
+        percent=25 + step_offset * 5,
+        step=2 + step_offset,
         total_steps=total_steps,
         message=f"Copied {copied} quadlet file(s)",
     )
 
     yield ProgressUpdate(
-        percent=50,
-        step=3,
+        percent=50 + step_offset * 5,
+        step=3 + step_offset,
         total_steps=total_steps,
         message="Reloading user systemd",
     )
@@ -553,8 +654,8 @@ async def deploy_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
 
     service_name = _stack_service_name(stack)
     yield ProgressUpdate(
-        percent=75,
-        step=4,
+        percent=75 + step_offset * 5,
+        step=4 + step_offset,
         total_steps=total_steps,
         message=f"Starting {service_name}",
     )
@@ -578,23 +679,63 @@ async def deploy_stack(stack: AIStack) -> bool:
     return True
 
 
-async def stop_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
-    """Stop a running AI stack with OperationModal progress."""
+async def remove_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
+    """Remove a deployed AI stack: stop, disable, delete quadlet files, daemon-reload."""
     service_name = _stack_service_name(stack)
-    yield ProgressUpdate(percent=0, step=1, total_steps=2, message=f"Stopping {service_name}")
-    await _run_systemctl_user("stop", service_name)
+    quadlet_dir = Path.home() / ".config" / "containers" / "systemd"
+    total_steps = 4
+
+    yield ProgressUpdate(
+        percent=0, step=1, total_steps=total_steps, message=f"Stopping {service_name}",
+    )
+    with contextlib.suppress(RuntimeError):
+        await _run_systemctl_user("stop", service_name)
+
+    yield ProgressUpdate(
+        percent=33, step=2, total_steps=total_steps, message=f"Disabling {service_name}",
+    )
+    with contextlib.suppress(RuntimeError):
+        await _run_systemctl_user("disable", service_name)
+
+    yield ProgressUpdate(
+        percent=66, step=3, total_steps=total_steps, message="Removing quadlet files",
+    )
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _remove_quadlet_files, stack, quadlet_dir)
+
+    yield ProgressUpdate(
+        percent=90, step=4, total_steps=total_steps, message="Reloading user systemd",
+    )
+    with contextlib.suppress(RuntimeError):
+        await _run_systemctl_user("daemon-reload")
+
     yield ProgressUpdate(
         percent=100,
-        step=2,
-        total_steps=2,
-        message=f"{stack.name or stack.slug} stopped",
+        step=total_steps,
+        total_steps=total_steps,
+        message=f"{stack.name or stack.slug} removed",
     )
 
 
+def _remove_quadlet_files(stack: AIStack, quadlet_dir: Path) -> None:
+    for source_file in (stack.container_file, stack.network_file):
+        if not source_file:
+            continue
+        dest = quadlet_dir / Path(source_file).name
+        with contextlib.suppress(FileNotFoundError):
+            dest.unlink()
+
+
+async def stop_stack_steps(stack: AIStack) -> AsyncGenerator[ProgressUpdate]:
+    """Remove a deployed AI stack (alias kept for CLI compat — delegates to remove_stack_steps)."""
+    async for update in remove_stack_steps(stack):
+        yield update
+
+
 async def stop_stack(stack: AIStack) -> bool:
-    """Stop a running AI stack."""
+    """Remove a deployed AI stack (CLI path)."""
     try:
-        async for _update in stop_stack_steps(stack):
+        async for _update in remove_stack_steps(stack):
             pass
     except (OSError, RuntimeError):
         return False

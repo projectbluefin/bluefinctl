@@ -54,8 +54,8 @@ class ConfirmModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label(self._title, id="confirm-title", classes="card--title")
-            yield Label(self._message, id="confirm-body")
+            yield Label(self._title, id="confirm-title", classes="card--title", markup=False)
+            yield Label(self._message, id="confirm-body", markup=False)
             with Horizontal():
                 yield Button("Cancel", id="btn-cancel", variant="default")
                 yield Button("Confirm", id="btn-confirm", variant="primary")
@@ -102,8 +102,8 @@ class InputModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label(self._title, id="input-title", classes="card--title")
-            yield Label(self._prompt, id="input-prompt")
+            yield Label(self._title, id="input-title", classes="card--title", markup=False)
+            yield Label(self._prompt, id="input-prompt", markup=False)
             yield Input(placeholder=self._placeholder, id="input-field")
             with Horizontal():
                 yield Button("Cancel", id="btn-cancel", variant="default")
@@ -160,8 +160,8 @@ class OperationLogModal(ModalScreen[int]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label(self._title, id="op-title", classes="card--title")
-            yield Label(f"  $ {' '.join(self._command)}", id="op-cmd")
+            yield Label(self._title, id="op-title", classes="card--title", markup=False)
+            yield Label(f"  $ {' '.join(self._command)}", id="op-cmd", markup=False)
             yield Log(id="op-log", highlight=True)
             with Horizontal():
                 yield Button("Close", id="btn-close", variant="default", disabled=True)
@@ -288,7 +288,7 @@ class HelpModal(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label("Keyboard Shortcuts", id="help-title", classes="card--title")
+            yield Label("Keyboard Shortcuts", id="help-title", classes="card--title", markup=False)
             with ScrollableContainer(id="help-scroll"):
                 yield Static(_HELP_TEXT, id="help-body", markup=True)
             with Horizontal():

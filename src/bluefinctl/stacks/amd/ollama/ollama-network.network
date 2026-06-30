@@ -1,4 +1,0 @@
-[Unit]
-Description=Isolated network for ollama
-
-[Network]

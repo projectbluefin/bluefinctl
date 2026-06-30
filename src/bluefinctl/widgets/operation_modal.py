@@ -128,12 +128,12 @@ class OperationModal(ModalScreen[int]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Label(self._title, id="op-title")
-            yield Label("Preparing...", id="op-step")
+            yield Label(self._title, id="op-title", markup=False)
+            yield Label("Preparing...", id="op-step", markup=False)
             with Static(id="op-progress-container"):
                 yield ProgressBar(id="op-bar", total=100, show_eta=False)
             yield Log(id="op-log", highlight=True)
-            yield Label("[l] Show log    [Esc] Cancel", id="op-footer-hint")
+            yield Label("[l] Show log    [Esc] Cancel", id="op-footer-hint", markup=False)
             yield Button("Close", id="btn-close", variant="default", disabled=True)
 
     def on_mount(self) -> None:

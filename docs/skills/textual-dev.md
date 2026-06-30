@@ -678,3 +678,4 @@ Button("Cancel", variant="default")      # neutral
 | `display: flex` ignored | Not a valid Textual CSS property | Use `layout: horizontal` |
 | Footer appears BELOW OpsBar | Both use `dock: bottom`; last-yielded wins | Yield `Footer()` before `OpsBar()`, override `Footer { dock: none; height: 1; }` |
 | Footer/OpsBar overlap content area | Footer still docking | Add `Footer { dock: none; height: 1; background: $panel; }` to screen DEFAULT_CSS |
+| `MarkupError` or `Expected markup value` crash | Subprocess stdout/stderr or exception message has brackets `[]` or ANSI escape sequences on a Label with `markup=True` (default) | Escape dynamic content with `rich.markup.escape` or set `markup=False` on the widget |
