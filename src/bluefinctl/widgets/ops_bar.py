@@ -156,8 +156,15 @@ class OpsBar(Widget):
 
     def _build_markup(self) -> str:  # noqa: PLR0911
         """Return the Rich markup string for the current state."""
+        import re
+
+        from rich.markup import escape
+
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        clean_message = escape(ansi_escape.sub("", self._message))
+
         if self._state == _IDLE:
-            return self._message
+            return clean_message
 
         if self._state == _RUNNING:
             ticker = self._build_ticker()
@@ -171,20 +178,20 @@ class OpsBar(Widget):
                     f"[dim]{'░' * n_empty}[/dim]"
                 )
                 ctr = f"[dim]{self._step}/{self._total}[/dim]"
-                return f"{ticker}[yellow]{sp}[/yellow]  {bar}  {ctr}  {self._message}"
-            return f"{ticker}[yellow]{sp}[/yellow]  {self._message}"
+                return f"{ticker}[yellow]{sp}[/yellow]  {bar}  {ctr}  {clean_message}"
+            return f"{ticker}[yellow]{sp}[/yellow]  {clean_message}"
 
         if self._state == _COMPLETE:
             bar = f"[green]{'█' * _BAR_WIDTH}[/green]"
-            return f"{bar}  [bold green]{self._message}[/bold green]"
+            return f"{bar}  [bold green]{clean_message}[/bold green]"
 
         if self._state == _ERROR:
-            return f"[bold red]{self._message}[/bold red]"
+            return f"[bold red]{clean_message}[/bold red]"
 
         if self._state == _CONFIRM:
-            return f"[yellow]{self._message}[/yellow]"
+            return f"[yellow]{clean_message}[/yellow]"
 
-        return self._message
+        return clean_message
 
     def _build_ticker(self) -> str:
         """Build the ✓-prefixed completed-step ticker that precedes the spinner."""
