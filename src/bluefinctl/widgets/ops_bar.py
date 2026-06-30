@@ -197,8 +197,10 @@ class OpsBar(Widget):
         """Build the ✓-prefixed completed-step ticker that precedes the spinner."""
         if not self._completed:
             return ""
+        from rich.markup import escape
+
         recent = self._completed[-_MAX_TICKER:]
-        parts = [f"[dim green]✓ {c}[/dim green]" for c in recent]
+        parts = [f"[dim green]✓ {escape(c)}[/dim green]" for c in recent]
         return "  ".join(parts) + "   "
 
     def _refresh_label(self) -> None:

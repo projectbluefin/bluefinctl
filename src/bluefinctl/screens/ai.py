@@ -35,7 +35,7 @@ def _check_render_group() -> bool:
         render_gid = grp.getgrnam("render").gr_gid
         return render_gid in os.getgroups()
     except KeyError:
-        return False  # render group doesn't exist on this system
+        return True  # render group doesn't exist on this system
 
 
 class GpuStatusBar(Static):
