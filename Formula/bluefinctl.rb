@@ -5,7 +5,7 @@ class Bluefinctl < Formula
   homepage "https://github.com/projectbluefin/bluefinctl"
   url "https://github.com/projectbluefin/bluefinctl/releases/download/v0.4.1/bluefinctl-0.4.1.tar.gz"
   sha256 "45784012d0330e7ad3ee26efddb81b7689dcf6f1cf2e8f64200fcd5bf389ad1d"
-  version "0.4.0"
+  version "0.4.1"
   license "MIT"
 
   depends_on "python@3.13"
