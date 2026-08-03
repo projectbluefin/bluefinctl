@@ -196,6 +196,7 @@ Detection: `shutil.which(tool.command)` for brew tools.
 
 | Mistake | Fix |
 |---|---|
+| Updating a container to an unprivileged image without reviewing bind mounts | Move mount targets to the image's new data paths and use `:U` when prior bind directories must be chowned to the container UID. |
 | Calling deploy from button handler without `@work` | `push_screen_wait` requires `@work(exclusive=True)` |
 | Using `_discover_stacks()` with hardcoded system path | Function handles system → bundled fallback automatically |
 | `systemctl start` without `--user` flag | AI stacks are user-level systemd units |

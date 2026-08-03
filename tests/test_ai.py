@@ -3,12 +3,31 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 from textual.widgets import ListView
 
 from bluefinctl.app import BluefinCtl
 from bluefinctl.screens.ai import AIScreen, ToolsTab
+
+
+def test_lemonade_quadlet_v11_uses_unprivileged_cache_paths() -> None:
+    """Lemonade v11 needs writable cache mounts owned by its non-root user."""
+    container = (
+        Path(__file__).parents[1] / "src/bluefinctl/stacks/amd/lemonade/lemonade.container"
+    ).read_text()
+
+    assert "Image=ghcr.io/lemonade-sdk/lemonade-server:v11.0.0" in container
+    assert (
+        "Volume=%h/ai-workspaces/lemonade/cache:/opt/lemonade/.cache/huggingface:z,U"
+        in container
+    )
+    assert (
+        "Volume=%h/ai-workspaces/lemonade/config:/opt/lemonade/.cache/lemonade:z,U"
+        in container
+    )
+    assert "/root/.cache" not in container
 
 
 def test_ai_screen_has_no_filter_placeholder() -> None:
