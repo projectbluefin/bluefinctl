@@ -158,6 +158,22 @@ def _detect_gpu() -> GpuInfo:
     return GpuInfo()
 
 
+def _tag_from_image_ref(ref: str) -> str | None:
+    """Extract the tag from an OCI image reference if present.
+
+    Returns ``None`` for digest references or bare refs without a tag.
+    """
+    if not ref or "@" in ref:
+        return None
+    if ":" not in ref:
+        return None
+    tag = ref.rsplit(":", 1)[-1]
+    # Tags cannot contain '/' and cannot look like a registry port.
+    if "/" in tag or tag.isdigit():
+        return None
+    return tag or None
+
+
 def _check_devmode() -> bool:
     """Check if developer mode is active."""
     devmode_flag = Path("/etc/ublue-os/devmode")
@@ -184,9 +200,10 @@ async def get_system_info() -> SystemInfo:
     raw_ref = image_data.get("image-ref", "")
     image_signed = raw_ref.startswith(_SIGNED_PREFIX)
 
-    # Bootc status — staged update + hostname
+    # Bootc status — runtime image ref, staged update + hostname
     boot_status = "Current"
     image_staged = False
+    runtime_tag: str | None = None
     hostname = ""
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -197,10 +214,15 @@ async def get_system_info() -> SystemInfo:
         stdout, _ = await proc.communicate()
         if proc.returncode == 0:
             bootc_data = json.loads(stdout)
-            staged = bootc_data.get("status", {}).get("staged")
+            status = bootc_data.get("status", {})
+            staged = status.get("staged")
             if staged:
                 image_staged = True
                 boot_status = "Update staged — reboot to apply"
+            booted_image = status.get("booted", {}).get("image", {}).get("image", {})
+            runtime_ref = booted_image.get("image", "")
+            if runtime_ref:
+                runtime_tag = _tag_from_image_ref(runtime_ref)
     except (FileNotFoundError, OSError):
         boot_status = "bootc unavailable"
 
@@ -209,7 +231,7 @@ async def get_system_info() -> SystemInfo:
 
     return SystemInfo(
         image_name=image_data.get("image-name", "unknown"),
-        image_tag=image_data.get("image-tag", "unknown"),
+        image_tag=runtime_tag or image_data.get("image-tag", "unknown"),
         image_ref=raw_ref,
         boot_status=boot_status,
         image_staged=image_staged,
