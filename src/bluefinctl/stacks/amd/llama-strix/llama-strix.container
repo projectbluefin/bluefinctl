@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 ContainerName=llama-strix
-Image=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4
+Image=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:1e666bff85b85e1fc877531c51ea7459a40429c8e48daee1b99eaece1c90c247
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 PodmanArgs=--security-opt=label=disable
