@@ -54,7 +54,11 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${FILENAME}"
-          git clone https://x-access-token:${GH_TOKEN}@github.com/projectbluefin/homebrew-bluefinctl.git tap
+          # Credential helper instead of embedding the token in the remote URL:
+          # keeps the app token out of tap/.git/config and out of any git error
+          # output that echoes the remote URL.
+          git clone https://github.com/projectbluefin/homebrew-bluefinctl.git tap
+          git -C tap config http.https://github.com/.extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${GH_TOKEN}" | base64)"
           sed -i \
             -e "s|url \".*\"|url \"${URL}\"|" \
             -e "s|sha256 \".*\"|sha256 \"${SHA256}\"|" \
