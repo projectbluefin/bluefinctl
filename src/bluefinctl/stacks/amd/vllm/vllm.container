@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 ContainerName=vllm
-Image=docker.io/vllm/vllm-openai-rocm:latest@sha256:75daf4ee4c3388fd5a43437ba2d229d35b4b863fefa0ab16d50efa0f38d41837
+Image=docker.io/vllm/vllm-openai-rocm:latest@sha256:bb44b39aea26798cce43030a98bf48efd0322ca7147367db86e38b96bd80f0e7
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 PodmanArgs=--security-opt=label=disable
