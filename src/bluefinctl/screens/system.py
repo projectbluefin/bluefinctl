@@ -334,16 +334,14 @@ class SystemScreen(Screen[None]):
         from bluefinctl.screens._modals import ConfirmModal, OperationLogModal
         state    = _check_devmode_active()
         username = os.environ.get("USER", "")
-        from bluefinctl.core.devmode import DEVMODE_GROUPS
+        from bluefinctl.core.devmode import DEVMODE_GROUPS, build_devmode_group_commands
         groups_str = ", ".join(DEVMODE_GROUPS)
         if state.active:
             confirmed = await self.app.push_screen_wait(
                 ConfirmModal("Disable Developer Mode", f"Remove groups from {username}?")
             )
             if confirmed:
-                cmds = " && ".join(
-                    f"gpasswd -d {username} {g}" for g in DEVMODE_GROUPS
-                )
+                cmds = " && ".join(build_devmode_group_commands(username, remove=True))
                 rc = await self.app.push_screen_wait(
                     OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
                 )
@@ -354,9 +352,7 @@ class SystemScreen(Screen[None]):
                 ConfirmModal("Enable Developer Mode", f"Add groups: {groups_str}?")
             )
             if confirmed:
-                cmds = " && ".join(
-                    f"usermod -aG {g} {username} 2>/dev/null || true" for g in DEVMODE_GROUPS
-                )
+                cmds = " && ".join(build_devmode_group_commands(username))
                 rc = await self.app.push_screen_wait(
                     OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
                 )

@@ -152,7 +152,11 @@ class DevModeScreen(Screen[None]):
 
     async def _load_devmode_state(self) -> None:
         """Read current devmode state and set the switch without firing Changed."""
-        from bluefinctl.core.devmode import _check_devmode_active
+        from bluefinctl.core.devmode import (
+            DEVMODE_GROUPS,
+            _check_devmode_active,
+            build_devmode_group_commands,
+        )
         loop = asyncio.get_running_loop()
         state = await loop.run_in_executor(None, _check_devmode_active)
         self.query_one("#devmode-switch", AdwSwitchRow).set_value(state.active)
@@ -183,18 +187,14 @@ class DevModeScreen(Screen[None]):
             confirmed = await self.app.push_screen_wait(
                 ConfirmModal(
                     "Enable Developer Mode",
-                    f"Add {username} to groups: docker, mock, lxd?\n"
+                    f"Add {username} to groups: {', '.join(DEVMODE_GROUPS)}?\n"
                     "A reboot is required to apply group changes.",
                 )
             )
             if not confirmed:
                 self.query_one("#devmode-switch", AdwSwitchRow).set_value(False)
                 return
-            cmds = " && ".join([
-                f"usermod -aG docker {username} 2>/dev/null || true",
-                f"usermod -aG mock   {username} 2>/dev/null || true",
-                f"usermod -aG lxd    {username} 2>/dev/null || true",
-            ])
+            cmds = " && ".join(build_devmode_group_commands(username))
             rc = await self.app.push_screen_wait(
                 OperationLogModal("Enable Developer Mode", ["pkexec", "bash", "-c", cmds])
             )
@@ -206,17 +206,13 @@ class DevModeScreen(Screen[None]):
             confirmed = await self.app.push_screen_wait(
                 ConfirmModal(
                     "Disable Developer Mode",
-                    f"Remove {username} from groups: docker, mock, lxd?",
+                    f"Remove {username} from groups: {', '.join(DEVMODE_GROUPS)}?",
                 )
             )
             if not confirmed:
                 self.query_one("#devmode-switch", AdwSwitchRow).set_value(True)
                 return
-            cmds = " && ".join([
-                f"gpasswd -d {username} docker 2>/dev/null || true",
-                f"gpasswd -d {username} mock   2>/dev/null || true",
-                f"gpasswd -d {username} lxd    2>/dev/null || true",
-            ])
+            cmds = " && ".join(build_devmode_group_commands(username, remove=True))
             rc = await self.app.push_screen_wait(
                 OperationLogModal("Disable Developer Mode", ["pkexec", "bash", "-c", cmds])
             )
