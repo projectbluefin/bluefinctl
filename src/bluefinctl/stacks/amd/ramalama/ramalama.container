@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 ContainerName=ramalama
-Image=quay.io/ramalama/ramalama:latest@sha256:abe07beba518d6864738a67af8ea3511cdaa4b24efb197740967d0d8e19419e4
+Image=quay.io/ramalama/ramalama:latest@sha256:a3c0ee8d06554add6808fffe7476a16db8c821de34949fa6213449ac9d95f9f3
 Exec=serve --port 8080 ollama://llama3.2:3b
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
