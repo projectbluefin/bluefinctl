@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from collections.abc import AsyncGenerator
@@ -78,6 +79,21 @@ DEVMODE_PACKAGES = [
     "dive",
     "kind",
 ]
+
+
+def build_devmode_group_commands(username: str, *, remove: bool = False) -> list[str]:
+    """Build shell commands that manage groups required by developer mode."""
+    quoted_user = shlex.quote(username)
+    if remove:
+        return [
+            f"gpasswd -d {quoted_user} {shlex.quote(group)}"
+            for group in DEVMODE_GROUPS
+        ]
+    return [
+        f"getent group {shlex.quote(group)} >/dev/null || groupadd --system {shlex.quote(group)}"
+        f" && usermod -aG {shlex.quote(group)} {quoted_user}"
+        for group in DEVMODE_GROUPS
+    ]
 
 DEV_TOOL_REGISTRY: tuple[DevTool, ...] = (
     DevTool(
@@ -332,6 +348,22 @@ async def enable_devmode() -> bool:
     username = os.environ.get("USER", "")
 
     for group in DEVMODE_GROUPS:
+        group_check = await asyncio.create_subprocess_exec(
+            "getent", "group", group,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await group_check.communicate()
+        if group_check.returncode != 0:
+            group_add = await asyncio.create_subprocess_exec(
+                "pkexec", "groupadd", "--system", group,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await group_add.communicate()
+            if group_add.returncode != 0:
+                console.print(f"  [dim]  Skipped group: {group}[/dim]")
+                continue
         proc = await asyncio.create_subprocess_exec(
             "pkexec", "usermod", "-aG", group, username,
             stdout=asyncio.subprocess.DEVNULL,
