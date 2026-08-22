@@ -5,8 +5,22 @@ from __future__ import annotations
 import pytest
 
 from bluefinctl.app import BluefinCtl
-from bluefinctl.core.devmode import get_dev_tools_status
+from bluefinctl.core.devmode import _lima_instance_exists, get_dev_tools_status
 from bluefinctl.screens.devmode import DevModeScreen
+
+
+def test_lima_instance_exists_matches_json_instance_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Result:
+        returncode = 0
+        stdout = '{"name":"ubuntu","status":"Running"}\n{"name":"other"}\n'
+
+    monkeypatch.setattr("bluefinctl.core.devmode.shutil.which", lambda _: "/usr/bin/limactl")
+    monkeypatch.setattr("bluefinctl.core.devmode.subprocess.run", lambda *args, **kwargs: Result())
+
+    assert _lima_instance_exists("ubuntu") is True
+    assert _lima_instance_exists("missing") is False
 
 
 def test_dev_tools_status_uses_shutil_which(monkeypatch: pytest.MonkeyPatch) -> None:
