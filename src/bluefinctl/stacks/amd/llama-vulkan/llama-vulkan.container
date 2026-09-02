@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 ContainerName=llama-vulkan
-Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:0d2878337629e977c4cfc5af3701726640d55ead0585ce5a199e9b47ef7a46d3
+Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:29a876fc7239466ea7e2d33c7b3588466d6f7fc87fabe91763a5b8d67d3f341a
 AddDevice=/dev/dri
 PodmanArgs=--security-opt=label=disable
 PodmanArgs=--security-opt=seccomp=unconfined
