@@ -434,6 +434,11 @@ def is_podman_desktop_installed() -> bool:
 
 def is_lima_installed() -> bool:
     """True if the ubuntu Lima VM is configured."""
+    return _lima_instance_exists("ubuntu")
+
+
+def _lima_instance_exists(name: str) -> bool:
+    """Return whether Lima already has an instance with this name."""
     if not shutil.which("limactl"):
         return False
     try:
@@ -443,8 +448,14 @@ def is_lima_installed() -> bool:
             text=True,
             timeout=10,
         )
-        return "ubuntu" in result.stdout
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        if result.returncode != 0:
+            return False
+        return any(
+            json.loads(line).get("name") == name
+            for line in result.stdout.splitlines()
+            if line.strip()
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return False
 
 
@@ -623,12 +634,19 @@ async def install_lima_steps() -> AsyncGenerator[ProgressUpdate]:
         percent=25, step=2, total_steps=total,
         message="Downloading Ubuntu LTS (~600MB)…",
     )
+    start_args = (
+        ("limactl", "start", "ubuntu")
+        if _lima_instance_exists("ubuntu")
+        else (
+            "limactl", "start",
+            "--name", "ubuntu",
+            "--mount-writable",
+            "--tty=false",
+            "template:ubuntu-lts",
+        )
+    )
     proc = await asyncio.create_subprocess_exec(
-        "limactl", "start",
-        "--name", "ubuntu",
-        "--mount-writable",
-        "--tty=false",
-        "template:ubuntu-lts",
+        *start_args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -638,7 +656,7 @@ async def install_lima_steps() -> AsyncGenerator[ProgressUpdate]:
             if line:
                 yield ProgressUpdate(message=line)
     rc = await proc.wait()
-    if rc not in (0, 1):  # 1 can mean "already running"
+    if rc != 0:
         raise RuntimeError(f"limactl start ubuntu failed (exit {rc})")
     yield ProgressUpdate(percent=70, message="✓ Ubuntu VM started")
 
