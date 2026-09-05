@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 ContainerName=nim-llama3
-Image=nvcr.io/nim/meta/llama-3.1-8b-instruct:latest@sha256:4bd86b250c7eac29e037fe2edadc627c9754329133e6d0c72976d9294ebdcdef
+Image=nvcr.io/nim/meta/llama-3.1-8b-instruct:latest@sha256:d2c94c1d654c3e80b8bc08cc83298d2ba4e219dff41d1092555795edb93c6545
 AddDevice=nvidia.com/gpu=all
 PodmanArgs=--security-opt=label=disable
 PodmanArgs=--ipc=host
