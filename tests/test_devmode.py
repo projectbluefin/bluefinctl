@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from bluefinctl.app import BluefinCtl
-from bluefinctl.core.devmode import get_dev_tools_status
+from bluefinctl.core.devmode import (
+    DEVMODE_GROUPS,
+    build_devmode_group_commands,
+    get_dev_tools_status,
+)
 from bluefinctl.screens.devmode import DevModeScreen
 
 
@@ -20,6 +24,21 @@ def test_dev_tools_status_uses_shutil_which(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert tools["kind"].installed is True
     assert tools["dive"].installed is False
+
+
+def test_devmode_group_commands_create_missing_groups() -> None:
+    commands = build_devmode_group_commands("alice")
+
+    assert len(commands) == len(DEVMODE_GROUPS)
+    assert all("getent group" in command for command in commands)
+    assert all("groupadd --system" in command for command in commands)
+    assert all("usermod -aG" in command for command in commands)
+
+
+def test_devmode_group_commands_quote_username() -> None:
+    commands = build_devmode_group_commands("alice example")
+
+    assert all("'alice example'" in command for command in commands)
 
 
 def test_devmode_screen_no_old_bindings() -> None:
