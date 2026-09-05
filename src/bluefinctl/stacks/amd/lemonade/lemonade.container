@@ -4,7 +4,7 @@ After=network-online.target
 
 [Container]
 ContainerName=lemonade
-Image=ghcr.io/lemonade-sdk/lemonade-server:v11.0.0@sha256:c0d38ab7933292c6199190091dc3987d1b9f9bf76c466811ff435d42ff5f28c1
+Image=ghcr.io/lemonade-sdk/lemonade-server:v11.9.0@sha256:3873d3ec672eaebdf4484cf1592daae1ae0f73d0f6377a03f38f931f972ca122
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 PodmanArgs=--security-opt=label=disable
