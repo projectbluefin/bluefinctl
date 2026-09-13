@@ -1,3 +1,32 @@
+> [!CAUTION]
+> **bluefinctl is deprecated and is no longer shipped in any Bluefin image.**
+>
+> This repository is **archived and read-only**. There will be **no further
+> releases, no bug fixes, and no security updates**. Do not install it, and do
+> not open issues or pull requests against it.
+>
+> **What replaces it:** [`chairlift`](https://github.com/projectbluefin/chairlift)
+> is what ships in Bluefin now. It is installed as a Homebrew cask from the
+> `frostyard/tap` tap:
+>
+> ```ruby
+> tap "frostyard/tap", trusted: true
+> cask "chairlift"
+> ```
+>
+> **What you need to do: nothing.** Existing bluefinctl installations are
+> removed for you on your next system update. `common`'s `brew-preinstall`
+> diffs each update's Brewfiles against the previously installed package set
+> and runs `brew uninstall bluefinctl --ignore-dependencies` for anything that
+> was dropped. bluefinctl is no longer in any Brewfile, so it is uninstalled
+> automatically.
+>
+> Everything below this notice is preserved unchanged as a historical record.
+> It describes software that is no longer maintained or installable — the
+> installation instructions below no longer apply.
+
+---
+
 # bluefinctl
 
 > Keyboard-driven TUI control panel for [Bluefin](https://projectbluefin.io) —
