@@ -8,6 +8,8 @@ class Bluefinctl < Formula
   version "0.4.1"
   license "MIT"
 
+  deprecate! date: "2026-09-13", because: "is retired and no longer ships in Bluefin; use chairlift instead"
+
   depends_on "python@3.13"
 
   def install

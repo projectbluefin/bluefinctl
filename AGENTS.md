@@ -1,3 +1,11 @@
+> [!CAUTION]
+> **This repository is deprecated and archived. Do not do any further work in it.**
+> bluefinctl is retired and no longer ships in any Bluefin image; `chairlift`
+> replaces it. Make no changes here — no fixes, no features, no dependency bumps.
+> Everything below is retained as a historical record only.
+
+---
+
 # bluefinctl — Agent & Copilot Instructions
 
 > **You are part of an agentic operating system, built by agentic workflows.**
